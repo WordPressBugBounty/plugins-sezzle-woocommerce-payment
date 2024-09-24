@@ -1,0 +1,167 @@
+# Copyright (C) 2021 Sezzle
+# This file is distributed under the same license as the WooCommerce Payments package.
+
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2021-08-27 00:58+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Author of the plugin
+#: woocommerce-gateway-sezzle.php:65 woocommerce-gateway-sezzle.php:314
+msgid "Sezzle"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:66
+msgid "Buy Now and Pay Later with Sezzle."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:296
+msgid "Enable/Disable"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:298
+msgid "Enable Sezzle"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:302
+msgid "Payment option availability in other countries"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:304
+msgid "Enable"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:305
+msgid ""
+"Enable Sezzle gateway in countries other than the US, Canada and Germany."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:310
+msgid "Title"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:312
+msgid ""
+"This controls the payment method title which the user sees during checkout."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:317
+msgid "Merchant ID"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:319
+msgid "Look for your Sezzle merchant ID in your Sezzle Dashboard."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:324
+msgid "Private Key"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:329
+msgid "Public Key"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:334
+msgid "Minimum Checkout Amount"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:339
+msgid "Transaction Mode"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:344
+msgid "Sandbox"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:345
+msgid "Live"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:349
+msgid "Show Sezzle widget in product pages"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:351
+msgid "Show the sezzle widget under price label in product pages"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:355
+msgid "Installment Plan Widget Configuration"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:357
+msgid "Enable Installment Widget Plan in Checkout page"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:363
+msgid "Order Total Container Class Name(e.g. "
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:369
+msgid "Order Total Container Parent Class Name(e.g. "
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:374
+msgid "Analytical Data Sync"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:376
+msgid "Sync Orders"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:377
+msgid "Data includes all orders from your store"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:381 woocommerce-gateway-sezzle.php:383
+msgid "Enable Logging"
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:512
+msgid "Unable to generate the transaction ID. Payment couldn't proceed."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:514
+msgid "Sorry, there was a problem preparing your payment."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:616
+msgid "Payment approved by Sezzle successfully."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:631 woocommerce-gateway-sezzle.php:637
+msgid ""
+"The payment failed because of an unknown error. Please contact Sezzle from "
+"the Sezzle merchant dashboard."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:700
+#, php-format
+msgid "Refund of %s successfully sent to Sezzle."
+msgstr ""
+
+#: woocommerce-gateway-sezzle.php:704
+msgid "There was an error submitting the refund to Sezzle."
+msgstr ""
+
+#. Plugin Name of the plugin
+msgid "Sezzle WooCommerce Payment"
+msgstr ""
+
+#. Description of the plugin
+msgid "Buy Now Pay Later with Sezzle"
+msgstr ""
+
+#. Author URI of the plugin
+msgid "https://www.sezzle.com/"
+msgstr ""
