@@ -2,13 +2,13 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 5.0.15
+Version: 5.0.16
 Author: Sezzle
 Author URI: https://www.sezzle.com/
-Tested up to: 6.5.3
-Copyright: © 2024 Sezzle
+Tested up to: 6.7.2
+Copyright: © 2025 Sezzle
 WC requires at least: 3.0.0
-WC tested up to: 9.1.4
+WC tested up to: 9.6.2
 Domain Path: /i18n/languages/
 
 This program is free software: you can redistribute it and/or modify
@@ -484,131 +484,250 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				return wc_get_checkout_url();
 			}
 
-			private function payment_captured( $order_reference_id ) {
-				$txn_mode   = $this->get_option('transaction-mode');
+            /**
+             * Retrieves Sezzle order
+             *
+             * @param string $order_reference_id
+             * @return mixed|object
+             */
+            private function retrieve_sezzle_order($order_reference_id)
+            {
+                $txn_mode = $this->get_option('transaction-mode');
+                $service_v1 = new Service_V1($txn_mode, $this->get_keys());
+                return $service_v1->retrieve_order($order_reference_id);
+            }
 
-				$service_v1 = new Service_V1($txn_mode, $this->get_keys());
+            /**
+             * Callback to do the capture
+             *
+             * @return void
+             */
+            public function sezzle_payment_callback()
+            {
+                try {
+                    $_REQUEST = stripslashes_deep($_REQUEST);
+                    $order_key = isset($_REQUEST['key']) ? sanitize_text_field($_REQUEST['key']) : '';
 
-				$response = $service_v1->retrieve_order($order_reference_id);
+                    if ($order_key) {
+                        $order_id = wc_get_order_id_by_order_key($order_key);
+                        $order = $this->get_order($order_id);
+                        $order_reference_id = $order->get_transaction_id();
+                    } else {
+                        $order_reference_id = isset($_REQUEST['order_reference_id']) ? sanitize_text_field($_REQUEST['order_reference_id']) : '';
+                        if ($order_reference_id === '') {
+                            throw new Exception(__('Order reference ID not matching', 'woo_sezzlepay'));
+                        }
 
-				return isset( $response->captured_at ) && $response->captured_at;
-			}
+                        $order = $this->get_order_by_txn_id($order_reference_id) ?: $this->create_sezzle_order();
+                    }
 
-			public function sezzle_payment_callback() {
-				try {
-					$_REQUEST           = stripslashes_deep( $_REQUEST );
-					$order_key = isset( $_REQUEST['key'] ) ? sanitize_text_field( $_REQUEST['key'] ) : '';
+                    $this->process_order_payment($order, $order_reference_id, $order_key);
+                } catch (Exception $e) {
+                    $this->handle_payment_exception($e);
+                }
+            }
 
-					if ( $order_key ) {
-						$order_id = wc_get_order_id_by_order_key( $order_key );
-						$order = $this->get_order( $order_id );
-						$order_reference_id = $order->get_transaction_id();
-					} else {
-						$order_reference_id = isset( $_REQUEST['order_reference_id'] ) ? sanitize_text_field( $_REQUEST['order_reference_id'] ) : '';
-						if ( $order_reference_id === '' ) {
-							throw new Exception(__('Order reference ID not matching', 'woo_sezzlepay'));
-						}
+            /**
+             * Get order by transaction ID (Order Reference ID)
+             *
+             * @param string $txn_id Order Reference ID
+             * @return false|mixed|WC_Order
+             */
+            private function get_order_by_txn_id($txn_id)
+            {
+                $orders = wc_get_orders(['transaction_id' => $txn_id]);
+                if (count($orders) == 0) {
+                    return false;
+                }
 
-						$posted_data     = WC()->session->get( 'posted_data' );
-						$sezzle_checkout = Sezzle_Checkout::instance();
-						$sezzle_checkout->process_customer( $posted_data );
-						WC()->cart->calculate_totals();
+                $this->log(sprintf('Order count for order reference ID: %s is %d', $txn_id, count($orders)));
 
-						$order_id = WC()->checkout()->create_order( $posted_data );
-						$order = $this->get_order( $order_id );
+                // ideally there should not be more one order for one order reference ID
+                // but, if in case, always take the latest
+                return $orders[count($orders) - 1];
+            }
 
-						switch ( true ) {
-							case is_wp_error( $order_id ):
-								throw new Exception( $order_id->get_error_message() );
-							case ! $order:
-								throw new Exception( __( 'Unable to create order.', 'woo_sezzlepay' ) );
-						}
+            /**
+             * Create Sezzle order
+             *
+             * @return bool|WC_Order|WC_Order_Refund
+             */
+            private function create_sezzle_order()
+            {
+                $posted_data = WC()->session->get('posted_data');
+                $sezzle_checkout = Sezzle_Checkout::instance();
+                $sezzle_checkout->process_customer($posted_data);
+                WC()->cart->calculate_totals();
 
-						do_action( 'woocommerce_checkout_order_processed', $order_id, $posted_data, $order );
-					}
+                $order_id = WC()->checkout()->create_order($posted_data);
+                $order = $this->get_order($order_id);
 
-					$redirect_url = wc_get_checkout_url();
-					if ( ! $this->payment_captured( $order_reference_id ) ) {
+                switch (true) {
+                    case is_wp_error($order_id):
+                        throw new Exception($order_id->get_error_message());
+                    case !$order:
+                        throw new Exception(__('Unable to create order.', 'woo_sezzlepay'));
+                }
 
-						$txn_mode   = $this->get_option( 'transaction-mode' );
+                do_action('woocommerce_checkout_order_processed', $order_id, $posted_data, $order);
 
-						$service_v1 = new Service_V1($txn_mode, $this->get_keys());
+                return $order;
+            }
 
-						$response = $service_v1->capture( $order_reference_id );
+            /**
+             * Determines if payment should be captured
+             *
+             * @param string $order_reference_id
+             * @param WC_Order $order
+             * @return bool
+             */
+            private function should_capture_payment($order_reference_id, $order)
+            {
+                $sezzle_order = $this->retrieve_sezzle_order($order_reference_id);
+                if (isset($sezzle_order->captured_at) && $sezzle_order->captured_at) {
+                    return false;
+                }
 
-						if ( is_object( $response ) && $response->amount_in_cents ) {
-							$order->add_order_note( __( 'Payment approved by Sezzle successfully.', 'woo_sezzlepay' ) );
-							$order->payment_complete( $order_reference_id );
-							WC()->cart->empty_cart();
-							$redirect_url = $this->get_return_url( $order );
-							if ( ! $order_key ) {
-								$order->add_meta_data( 'order_reference_id', $order_reference_id );
-								$order->set_transaction_id( $order_reference_id );
-								$order->save();
-								apply_filters( 'woocommerce_payment_successful_result', '', $order_id );
-							}
-						} else {
-							$orderFailed = true;
+                $woo_order_amount_in_cents = Sezzle_Utils::formatToCents($order->get_total());
 
-							// if it is not a json
-							if ( is_null( $response ) ) {
-								// return a generic error
-								$order->add_order_note(
-									__(
-										'The payment failed because of an unknown error. Please contact Sezzle from the Sezzle merchant dashboard.',
-										'woo_sezzlepay'
-									)
-								);
-							} else {
-								// if the body is not valid json
-								if ( ! isset( $response->id ) ) {
-									// return a generic error
-									$order->add_order_note(
-										__(
-											'The payment failed because of an unknown error. Please contact Sezzle from the Sezzle merchant dashboard.',
-											'woo_sezzlepay'
-										)
-									);
-								} else {
-									if ( strtolower( $response->id ) == 'checkout_expired' ) {
-										// show the message received from sezzle
-										$order->add_order_note( __( ucfirst( "$response->id : $response->message" ), 'woo_sezzlepay' ) );
-									} else {
-										if ( strtolower( $response->id ) == 'checkout_captured' ) {
-											$orderFailed = false;
-										}
-									}
-								}
-							}
+                if ($woo_order_amount_in_cents !== $sezzle_order->amount_in_cents) {
+                    $msg = sprintf('Unable to complete payment. Cart amount has been updated to %s.', $order->get_formatted_order_total());
+                    $this->log($msg);
+                    throw new Exception(__($msg, 'woo_sezzlepay'));
+                }
 
-							if ( $orderFailed ) {
-								$order->update_status( 'failed' );
-							}
-							$redirect_url = wc_get_checkout_url();
-						}
-					} else if ( ! $order->is_paid() ) {
-						$order->payment_complete( $order_reference_id );
-						WC()->cart->empty_cart();
-						$redirect_url = $this->get_return_url( $order );
-					}
+                return true;
+            }
 
-					wp_redirect( $redirect_url );
-					if ( $order_reference_id ) {
-						exit;
-					}
-				} catch (Exception $e) {
-                    $this->log($e->getMessage());
+            /**
+             * Processes order payment based on its status
+             *
+             * @param WC_Order $order
+             * @param string $order_reference_id
+             * @param string $order_key
+             * @return void
+             */
+            private function process_order_payment($order, $order_reference_id, $order_key) {
+                if ($this->should_capture_payment($order_reference_id, $order)) {
+                    $this->capture_payment($order, $order_reference_id, $order_key);
+                    return;
+                }
 
-                    $txn_mode   = $this->get_option( 'transaction-mode' );
-                    $service_v1 = new Service_V1($txn_mode, $this->get_keys());
-                    $merchant_uuid = $this->get_option( 'merchant-id' );
-                    $service_v1->send_logs( $merchant_uuid, json_encode( $this->get_logs()) );
+                if (!$order->is_paid()) {
+                    $this->complete_payment($order, $order_reference_id);
+                    return;
+                }
 
-					wc_add_notice( $e->getMessage(), 'error' );
-					wp_redirect( wc_get_checkout_url() );
-					exit;
-				}
-			}
+                wp_redirect(wc_get_checkout_url());
+                exit;
+            }
+
+            /**
+             * Completes a payment in Woo
+             *
+             * @param WC_Order $order
+             * @param string $order_reference_id
+             * @return void
+             */
+            private function complete_payment($order, $order_reference_id)
+            {
+                $order->payment_complete($order_reference_id);
+                WC()->cart->empty_cart();
+                wp_redirect($this->get_return_url($order));
+                exit;
+            }
+
+            /**
+             * Captures a Sezzle payment associated with a Woo order
+             *
+             * @param WC_Order $order
+             * @param string $order_reference_id
+             * @param string $order_key
+             * @return void
+             */
+            private function capture_payment($order, $order_reference_id, $order_key)
+            {
+                $txn_mode = $this->get_option('transaction-mode');
+                $service_v1 = new Service_V1($txn_mode, $this->get_keys());
+                $response = $service_v1->capture($order_reference_id);
+
+                if (is_object($response) && isset($response->amount_in_cents)) {
+                    $this->handle_successful_capture($order, $order_reference_id, $order_key);
+                } else {
+                    $this->handle_failed_capture($order, $response);
+                }
+            }
+
+            /**
+             * Handle successful Sezzle payment capture
+             *
+             * @param WC_Order $order
+             * @param string $order_reference_id
+             * @param string $order_key
+             * @return void
+             */
+            private function handle_successful_capture($order, $order_reference_id, $order_key) {
+                $order->add_order_note(__('Payment approved by Sezzle successfully.', 'woo_sezzlepay'));
+                $order->payment_complete($order_reference_id);
+                WC()->cart->empty_cart();
+
+                if (!$order_key) {
+                    $order->add_meta_data('order_reference_id', $order_reference_id);
+                    $order->set_transaction_id($order_reference_id);
+                    $order->save();
+                    apply_filters('woocommerce_payment_successful_result', '', $order->get_id());
+                }
+
+                wp_redirect($this->get_return_url($order));
+                exit;
+            }
+
+            /**
+             * Handles failed Sezzle payment capture
+             *
+             * @param WC_Order $order
+             * @param null|object $response
+             * @return void
+             */
+            private function handle_failed_capture($order, $response) {
+                $order_failed = true;
+
+                if (is_null($response) || !isset($response->id)) {
+                    $order->add_order_note(
+                        __('The payment failed because of an unknown error. Please contact Sezzle from the Sezzle merchant dashboard.', 'woo_sezzlepay')
+                    );
+                } elseif (strtolower($response->id) === 'checkout_expired') {
+                    $order->add_order_note(__(ucfirst("$response->id : $response->message"), 'woo_sezzlepay'));
+                } elseif (strtolower($response->id) === 'checkout_captured') {
+                    $order_failed = false;
+                }
+
+                if ($order_failed) {
+                    $order->update_status('failed');
+                }
+
+                wp_redirect(wc_get_checkout_url());
+                exit;
+            }
+
+            /**
+             * Handles exceptions during payment processing
+             *
+             * @param Exception $exception
+             * @return void
+             */
+            private function handle_payment_exception($exception) {
+                $this->log($exception->getMessage());
+
+                $txn_mode = $this->get_option('transaction-mode');
+                $service_v1 = new Service_V1($txn_mode, $this->get_keys());
+                $merchant_uuid = $this->get_option('merchant-id');
+                $service_v1->send_logs($merchant_uuid, json_encode($this->get_logs()));
+
+                wc_add_notice($exception->getMessage(), 'error');
+                wp_redirect(wc_get_checkout_url());
+                exit;
+            }
 
 			public function process_refund( $order_id, $amount = null, $reason = '' ) {
 				$order = $this->get_order( $order_id );
@@ -621,11 +740,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				];
 
 				$txn_mode   = $this->get_option('transaction-mode');
-
 				$service_v1 = new Service_V1($txn_mode, $this->get_keys());
-
 				$response = $service_v1->refund($order_reference_id, $request);
-
 
 				if ( is_object($response) && $response->refund_id ) {
 					$order->add_order_note(
