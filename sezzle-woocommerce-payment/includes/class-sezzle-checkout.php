@@ -829,8 +829,10 @@ class Sezzle_Checkout {
 			$result = 'success';
 			$redirect_url = wc_get_checkout_url();
 			try {
-				$checkout_data = $gateway->get_checkout_data(null, $posted_data);
-				$redirect_url = $gateway->get_redirect_url($checkout_data);
+				$checkout_data = $gateway->format_checkout_data(null, $posted_data);
+				$session = $gateway->redirect_to_checkout($checkout_data);
+				$redirect_url = $session['redirect_url'];
+				WC()->session->set( 'sezzle_order_uuid', $session['order_uuid'] );
 			} catch (Exception $e) {
 				$result = 'failure';
 			}

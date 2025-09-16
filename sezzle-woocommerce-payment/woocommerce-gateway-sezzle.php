@@ -2,13 +2,13 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 5.0.16
+Version: 6.0.1
 Author: Sezzle
 Author URI: https://www.sezzle.com/
-Tested up to: 6.7.2
+Tested up to: 6.7.3
 Copyright: © 2025 Sezzle
-WC requires at least: 3.0.0
-WC tested up to: 9.6.2
+WC requires at least: 7.8.0
+WC tested up to: 10.1.2
 Domain Path: /i18n/languages/
 
 This program is free software: you can redistribute it and/or modify
@@ -36,7 +36,7 @@ if ( ! defined( 'WC_GATEWAY_SEZZLEPAY_PATH' )) {
 }
 
 require_once WC_GATEWAY_SEZZLEPAY_PATH . '/includes/class-sezzle-checkout.php';
-require_once WC_GATEWAY_SEZZLEPAY_PATH . '/includes/class-service-v1.php';
+require_once WC_GATEWAY_SEZZLEPAY_PATH . '/includes/class-service-v2.php';
 require_once WC_GATEWAY_SEZZLEPAY_PATH . '/includes/class-sezzle-utils.php';
 
 /**
@@ -281,8 +281,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				];
 
                 try {
-                    $service_v1 = new Service_V1($transaction_mode);
-                    $response = $service_v1->authenticate($request);
+                    $service_v2 = new Service_V2($transaction_mode);
+                    $response = $service_v2->authenticate($request);
                     return isset($response->token);
                 } catch (Exception $e) {
                     $this->log('Unable to validate keys.');
@@ -357,11 +357,12 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				try {
 					$order = $this->get_order( $order_id );
 
-					$checkout_data = $this->get_checkout_data( $order );
-					$redirect_url  = $this->get_redirect_url( $checkout_data );
-
+					$checkout_data = $this->format_checkout_data( $order );
+					$session  = $this->redirect_to_checkout( $checkout_data );
+					$redirect_url = $session['redirect_url'];
                     $order->add_meta_data('sezzle_redirect_url', $redirect_url);
-                    $order->save();
+					$order->add_meta_data('sezzle_order_uuid', $session['order_uuid']);
+					$order->save();
 
 					$result = 'success';
 					$redirect = $redirect_url;
@@ -385,7 +386,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			 *
 			 * @return array
 			 */
-			public function get_checkout_data( $order = null, $post_data = [] ) {
+			public function format_checkout_data( $order = null, $post_data = [] ) {
 				$order_exist = $order instanceof WC_Order;
 
 				$order_reference_id = uniqid();
@@ -432,69 +433,80 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				}
 
 				return [
-					'amount_in_cents'            => $amount_in_cents,
-					'currency_code'              => get_woocommerce_currency(),
-					'order_description'          => $order_reference_id,
-					'order_reference_id'         => $order_reference_id,
-					'display_order_reference_id' => $order_exist ? (string)$order->get_id() : '',
-					'checkout_complete_url'      => $complete_url,
-					'checkout_cancel_url'        => wc_get_checkout_url(),
-					'customer_details'           => [
+					'order' => [
+						'intent' => 'AUTH',
+						'reference_id'         => $order_reference_id,
+						'description'          => $order_exist ? (string)$order->get_id() : $order_reference_id,
+						'items' => $items,
+						'order_amount' => [
+							'amount_in_cents'            => $amount_in_cents,
+							'currency'              => get_woocommerce_currency(),
+						],
+					],
+					'cancel_url' => [
+						'href' => wc_get_checkout_url(),
+					],
+					'complete_url' => [
+						'href' => $complete_url,
+					],
+					'customer'           => [
 						'first_name' => $order_exist ? $order->get_billing_first_name() : $post_data['billing_first_name'],
 						'last_name'  => $order_exist ? $order->get_billing_last_name() : $post_data['billing_last_name'],
 						'email'      => $order_exist ? $order->get_billing_email() : $post_data['billing_email'],
 						'phone'      => $order_exist ? $order->get_billing_phone() : $post_data['billing_phone'],
+						'billing_address' => [
+							'street'       => $order_exist ? $order->get_billing_address_1() : $post_data['billing_address_1'],
+							'street2'      => $order_exist ? $order->get_billing_address_2() : $post_data['billing_address_2'],
+							'city'         => $order_exist ? $order->get_billing_city() : $post_data['billing_city'],
+							'state'        => $order_exist ? $order->get_billing_state() : $post_data['billing_state'],
+							'postal_code'  => $order_exist ? $order->get_billing_postcode() : $post_data['billing_postcode'],
+							'country_code' => $order_exist ? $order->get_billing_country() : $post_data['billing_country'],
+							'phone'        => $order_exist ? $order->get_billing_phone() : $post_data['billing_phone'],
+						],
+						'shipping_address' => [
+							'street'       => $order_exist ? $order->get_shipping_address_1() : $post_data['shipping_address_1'],
+							'street2'      => $order_exist ? $order->get_shipping_address_2() : $post_data['shipping_address_2'],
+							'city'         => $order_exist ? $order->get_shipping_city() : $post_data['shipping_city'],
+							'state'        => $order_exist ? $order->get_shipping_state() : $post_data['shipping_state'],
+							'postal_code'  => $order_exist ? $order->get_shipping_postcode() : $post_data['shipping_postcode'],
+							'country_code' => $order_exist ? $order->get_shipping_country() : $post_data['shipping_country'],
+						],
 					],
-
-					'billing_address' => [
-						'street'       => $order_exist ? $order->get_billing_address_1() : $post_data['billing_address_1'],
-						'street2'      => $order_exist ? $order->get_billing_address_2() : $post_data['billing_address_2'],
-						'city'         => $order_exist ? $order->get_billing_city() : $post_data['billing_city'],
-						'state'        => $order_exist ? $order->get_billing_state() : $post_data['billing_state'],
-						'postal_code'  => $order_exist ? $order->get_billing_postcode() : $post_data['billing_postcode'],
-						'country_code' => $order_exist ? $order->get_billing_country() : $post_data['billing_country'],
-						'phone'        => $order_exist ? $order->get_billing_phone() : $post_data['billing_phone'],
-					],
-
-					'shipping_address' => [
-						'street'       => $order_exist ? $order->get_shipping_address_1() : $post_data['shipping_address_1'],
-						'street2'      => $order_exist ? $order->get_shipping_address_2() : $post_data['shipping_address_2'],
-						'city'         => $order_exist ? $order->get_shipping_city() : $post_data['shipping_city'],
-						'state'        => $order_exist ? $order->get_shipping_state() : $post_data['shipping_state'],
-						'postal_code'  => $order_exist ? $order->get_shipping_postcode() : $post_data['shipping_postcode'],
-						'country_code' => $order_exist ? $order->get_shipping_country() : $post_data['shipping_country'],
-					],
-
-					'items' => $items,
-
-					'merchant_completes' => true
 				];
 			}
 
-			public function get_redirect_url( $data ) {
+			public function redirect_to_checkout( $data ) {
 				$txn_mode   = $this->get_option('transaction-mode');
-				$service_v1 = new Service_V1($txn_mode, $this->get_keys());
+				$service_v2 = new Service_V2($txn_mode, $this->get_keys());
 
-				$response = $service_v1->create_checkout($data);
-				if ( isset( $response->checkout_url ) ) {
-					return $response->checkout_url;
+				$response = $service_v2->create_session($data);
+				if ( isset( $response->order ) ) {
+					$order_uuid   = $response->order->uuid;
+					$redirect_url = $response->order->checkout_url;
+					return [
+						'redirect_url' => $redirect_url,
+						'order_uuid'   => $order_uuid
+					];
 				}
 
 				wc_add_notice( __( 'Sorry, there was a problem preparing your payment.', 'woo_sezzlepay' ), 'error' );
-				return wc_get_checkout_url();
+				return [
+					'redirect_url' => wc_get_checkout_url(),
+					'order_uuid'   => null
+				];
 			}
 
             /**
              * Retrieves Sezzle order
              *
-             * @param string $order_reference_id
+             * @param string $sezzle_order_uuid
              * @return mixed|object
              */
-            private function retrieve_sezzle_order($order_reference_id)
+            private function get_sezzle_order_details($sezzle_order_uuid)
             {
                 $txn_mode = $this->get_option('transaction-mode');
-                $service_v1 = new Service_V1($txn_mode, $this->get_keys());
-                return $service_v1->retrieve_order($order_reference_id);
+                $service_v2 = new Service_V2($txn_mode, $this->get_keys());
+                return $service_v2->get_order_details($sezzle_order_uuid);
             }
 
             /**
@@ -520,8 +532,13 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 
                         $order = $this->get_order_by_txn_id($order_reference_id) ?: $this->create_sezzle_order();
                     }
-
-                    $this->process_order_payment($order, $order_reference_id, $order_key);
+					$sezzle_order_uuid = $order->get_meta('sezzle_order_uuid', true);
+					if( !$sezzle_order_uuid ) {
+						$sezzle_order_uuid = WC()->session->get('sezzle_order_uuid');
+						$order->add_meta_data('sezzle_order_uuid', $sezzle_order_uuid);
+						$order->save();
+					}
+                    $this->process_order_payment($order, $order_reference_id, $sezzle_order_uuid, $order_key);
                 } catch (Exception $e) {
                     $this->handle_payment_exception($e);
                 }
@@ -577,20 +594,20 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
             /**
              * Determines if payment should be captured
              *
-             * @param string $order_reference_id
+             * @param string $sezzle_order_uuid
              * @param WC_Order $order
              * @return bool
              */
-            private function should_capture_payment($order_reference_id, $order)
+            private function should_capture_payment($sezzle_order_uuid, $order)
             {
-                $sezzle_order = $this->retrieve_sezzle_order($order_reference_id);
-                if (isset($sezzle_order->captured_at) && $sezzle_order->captured_at) {
+                $sezzle_order = $this->get_sezzle_order_details($sezzle_order_uuid);
+                if ($sezzle_order?->authorization?->captures) {
                     return false;
                 }
 
                 $woo_order_amount_in_cents = Sezzle_Utils::formatToCents($order->get_total());
 
-                if ($woo_order_amount_in_cents !== $sezzle_order->amount_in_cents) {
+                if ($woo_order_amount_in_cents !== $sezzle_order->order_amount->amount_in_cents) {
                     $msg = sprintf('Unable to complete payment. Cart amount has been updated to %s.', $order->get_formatted_order_total());
                     $this->log($msg);
                     throw new Exception(__($msg, 'woo_sezzlepay'));
@@ -604,17 +621,18 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
              *
              * @param WC_Order $order
              * @param string $order_reference_id
+			 * @param string $sezzle_order_uuid
              * @param string $order_key
              * @return void
              */
-            private function process_order_payment($order, $order_reference_id, $order_key) {
-                if ($this->should_capture_payment($order_reference_id, $order)) {
-                    $this->capture_payment($order, $order_reference_id, $order_key);
+            private function process_order_payment($order, $order_reference_id, $sezzle_order_uuid, $order_key) {
+                if ($this->should_capture_payment($sezzle_order_uuid, $order)) { 
+                    $this->capture_payment($order, $order_reference_id, $sezzle_order_uuid, $order_key);
                     return;
                 }
 
                 if (!$order->is_paid()) {
-                    $this->complete_payment($order, $order_reference_id);
+                    $this->mark_payment_complete($order, $order_reference_id);
                     return;
                 }
 
@@ -629,7 +647,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
              * @param string $order_reference_id
              * @return void
              */
-            private function complete_payment($order, $order_reference_id)
+            private function mark_payment_complete($order, $order_reference_id)
             {
                 $order->payment_complete($order_reference_id);
                 WC()->cart->empty_cart();
@@ -642,16 +660,24 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
              *
              * @param WC_Order $order
              * @param string $order_reference_id
+			 * @param string $sezzle_order_uuid
              * @param string $order_key
              * @return void
              */
-            private function capture_payment($order, $order_reference_id, $order_key)
+            private function capture_payment($order, $order_reference_id, $sezzle_order_uuid, $order_key)
             {
                 $txn_mode = $this->get_option('transaction-mode');
-                $service_v1 = new Service_V1($txn_mode, $this->get_keys());
-                $response = $service_v1->capture($order_reference_id);
+                $service_v2 = new Service_V2($txn_mode, $this->get_keys());
+				$total = $order->get_total();
+				$request = [
+					'capture_amount' => [
+						'amount_in_cents' => Sezzle_Utils::formatToCents($total),
+						'currency'        => $order->get_currency(),
+					]
+				];
+                $response = $service_v2->capture($sezzle_order_uuid, $request);
 
-                if (is_object($response) && isset($response->amount_in_cents)) {
+                if (is_object($response) && isset($response->uuid)) {
                     $this->handle_successful_capture($order, $order_reference_id, $order_key);
                 } else {
                     $this->handle_failed_capture($order, $response);
@@ -692,13 +718,13 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
             private function handle_failed_capture($order, $response) {
                 $order_failed = true;
 
-                if (is_null($response) || !isset($response->id)) {
+                if (is_null($response) || !isset($response->code)) {
                     $order->add_order_note(
                         __('The payment failed because of an unknown error. Please contact Sezzle from the Sezzle merchant dashboard.', 'woo_sezzlepay')
                     );
-                } elseif (strtolower($response->id) === 'checkout_expired') {
-                    $order->add_order_note(__(ucfirst("$response->id : $response->message"), 'woo_sezzlepay'));
-                } elseif (strtolower($response->id) === 'checkout_captured') {
+                } elseif (strtolower($response->code) === 'checkout_expired') {
+                    $order->add_order_note(__(ucfirst("$response->code : $response->message"), 'woo_sezzlepay'));
+                } elseif (strtolower($response->code) === 'checkout_captured') {
                     $order_failed = false;
                 }
 
@@ -720,9 +746,9 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $this->log($exception->getMessage());
 
                 $txn_mode = $this->get_option('transaction-mode');
-                $service_v1 = new Service_V1($txn_mode, $this->get_keys());
+                $service_v2 = new Service_V2($txn_mode, $this->get_keys());
                 $merchant_uuid = $this->get_option('merchant-id');
-                $service_v1->send_logs($merchant_uuid, json_encode($this->get_logs()));
+                $service_v2->send_logs($merchant_uuid, json_encode($this->get_logs()));
 
                 wc_add_notice($exception->getMessage(), 'error');
                 wp_redirect(wc_get_checkout_url());
@@ -732,18 +758,16 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			public function process_refund( $order_id, $amount = null, $reason = '' ) {
 				$order = $this->get_order( $order_id );
 				$order_reference_id = $order->get_transaction_id();
+				$sezzle_order_uuid = $order->get_meta('sezzle_order_uuid', true);
 				$request = [
-					'amount' => [
-						'amount_in_cents' => Sezzle_Utils::formatToCents($amount),
-						'currency'        => $order->get_currency(),
-					]
+					'amount_in_cents' => Sezzle_Utils::formatToCents($amount),
+					'currency'        => $order->get_currency(),
 				];
-
 				$txn_mode   = $this->get_option('transaction-mode');
-				$service_v1 = new Service_V1($txn_mode, $this->get_keys());
-				$response = $service_v1->refund($order_reference_id, $request);
+				$service_v2 = new Service_V2($txn_mode, $this->get_keys());
+				$response = $service_v2->refund($sezzle_order_uuid, $request);
 
-				if ( is_object($response) && $response->refund_id ) {
+				if ( is_object($response) && $response->uuid ) {
 					$order->add_order_note(
 						sprintf(
 							/* translators: %s: $amount */
@@ -813,8 +837,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 }
 
 				$txn_mode = $this->get_option( 'transaction-mode' );
-				$service_v1 = new Service_V1($txn_mode, $this->get_keys());
-				$response = $service_v1->send_merchant_orders( $request );
+				$service_v2 = new Service_V2($txn_mode, $this->get_keys());
+				$response = $service_v2->send_merchant_orders( $request );
 
 				if ( empty((array)$response) ) {
 					$this->log( "Orders sent to Sezzle" );
@@ -869,8 +893,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 					$request   = $this->get_admin_configuration();
 
 					$txn_mode = $this->get_option('transaction-mode');
-					$service_v1 = new Service_V1($txn_mode, $this->get_keys());
-					$service_v1->post_configuration( $request );
+					$service_v2 = new Service_V2($txn_mode, $this->get_keys());
+					$service_v2->post_configuration( $request );
 				} catch ( Exception $exception ) {
 					$this->log( 'Error sending admin config details: ' . $exception->getMessage() );
 				}

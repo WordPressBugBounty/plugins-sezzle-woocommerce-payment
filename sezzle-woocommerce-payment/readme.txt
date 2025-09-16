@@ -1,11 +1,11 @@
 === Sezzle Woocommerce Payment ===
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
-Requires at least: 5.3.2
-Version: 5.0.16
-Stable tag: 5.0.16
-Tested up to: 6.7.2
-Requires PHP: 5.6
+Requires at least: 5.6.0
+Version: 6.0.1
+Stable tag: 6.0.1
+Tested up to: 6.7.3
+Requires PHP: 8.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,12 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 For more information, please visit [Sezzle Docs](https://docs.sezzle.com/#woocommerce).
 
 == Changelog ==
+
+= 6.0.1 =
+* FIX: update PHP required version
+
+= 6.0.0 =
+* Now using Sezzle Gateway v2 API
 
 = 5.0.16 =
 * FIX: Duplicate order on hitting complete URL when "Create order post checkout completion".
