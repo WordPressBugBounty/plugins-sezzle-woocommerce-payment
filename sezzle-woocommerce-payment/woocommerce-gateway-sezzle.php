@@ -2,7 +2,7 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 6.0.2
+Version: 6.0.3
 Author: Sezzle
 Author URI: https://www.sezzle.com/
 Tested up to: 6.7.3
@@ -1141,7 +1141,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                     var sezzlePaymentLine = document.querySelector('.payment_method_". $gateway->id ."');
                     if (document.getElementById('sezzle-installment-widget-box')) {
                         document.getElementById('sezzle-installment-widget-box').remove();
-                        document.querySelector('.sezzle-modal-overlay').remove();
+                        document.querySelector('.sezzle-modal-overlay') && document.querySelector('.sezzle-modal-overlay').remove();
                     }
                     if (sezzlePaymentLine) {
                          var sezzleCheckoutWidget = document.createElement('div');

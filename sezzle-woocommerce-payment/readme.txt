@@ -2,8 +2,8 @@
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
 Requires at least: 5.6.0
-Version: 6.0.2
-Stable tag: 6.0.2
+Version: 6.0.3
+Stable tag: 6.0.3
 Tested up to: 6.7.3
 Requires PHP: 8.0
 License: GPLv2 or later
@@ -30,6 +30,9 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 For more information, please visit [Sezzle Docs](https://docs.sezzle.com/#woocommerce).
 
 == Changelog ==
+
+= 6.0.3 =
+* FIX: Remedy installment widget issue where sezzle-modal-overlay is undefined
 
 = 6.0.2 =
 * FIX: add new files not saved in previous deployment
