@@ -14,6 +14,11 @@ class Service_V2 implements Service_V2_Interface
     const CONFIGURATION_ENDPOINT = '/v2/configuration';
     const MERCHANT_ORDERS_ENDPOINT = '/v1/merchant_data/woocommerce/merchant_orders';
     const LOG_ENDPOINT = '/v1/logs/%s';
+    const EXPRESS_CHECKOUT_FLAG_ENDPOINT = '/v2/feature-flags/is-express-checkout';
+    const UPDATE_CHECKOUT_ENDPOINT = '/v2/order/%s/checkout';
+    const WIDGET_SERVER_URL = 'https://widget.sezzle.com';
+    const STAGING_WIDGET_SERVER_URL = 'https://staging.widget.sezzle.com';
+    const WIDGET_SERVER_LOGS_ENDPOINT = '/v1/event/log';
 
     private $api_mode;
 
@@ -100,7 +105,7 @@ class Service_V2 implements Service_V2_Interface
         return $this->make_call($url, 'POST', $request);
     }
 
-    public function send_logs($merchant_uuid, $logs)
+    public function send_logs($merchant_uuid, $logs, $sezzle_order_uuid = null, $order_details = null)
     {
         try {
             $url = $this->get_url(sprintf(self::LOG_ENDPOINT, $merchant_uuid));
@@ -108,7 +113,9 @@ class Service_V2 implements Service_V2_Interface
             $request = [
                 'start_time' => date('Y-m-d'),
                 'end_time' => date('Y-m-d'),
-                'log' => $logs
+                'log' => $logs,
+                'order_details' => $order_details ? json_encode($order_details) : '',
+                'order_uuid' => $sezzle_order_uuid ? $sezzle_order_uuid : ''
             ];
 
             return $this->make_call($url, 'POST', $request);
@@ -157,6 +164,48 @@ class Service_V2 implements Service_V2_Interface
         return $this->make_call($url, 'POST', $request);
     }
 
+     /**
+     * Check if express checkout feature flag is enabled
+     * 
+     * @return bool
+     */
+    public function is_express_checkout_enabled()
+    {  
+        $url = $this->get_url(self::EXPRESS_CHECKOUT_FLAG_ENDPOINT);
+        
+        // Use Basic auth with public key for feature flag endpoint
+        $headers = ['Authorization' => 'Basic ' . base64_encode($this->keys['public_key'])];
+        
+        return $this->make_call($url, 'GET', [], $headers);
+    }
+
+    /**
+     * Update checkout with shipping address and costs
+     *
+     * @param string $sezzle_order_uuid Sezzle order UUID
+     * @param array $request Update request data
+     * @return mixed
+     * @throws Exception
+     */
+    public function update_checkout($sezzle_order_uuid, $request)
+    {
+        try {
+            $url = $this->get_url(sprintf(self::UPDATE_CHECKOUT_ENDPOINT, $sezzle_order_uuid));
+            return $this->make_call($url, 'PATCH', $request);
+        } catch (Exception $e) {
+            throw new Exception('Error calling sezzle order update request');
+        }
+    }
+
+    public function send_widget_server_logs($logs)
+    {
+        $base_url = $this->api_mode === 'sandbox' ? self::STAGING_WIDGET_SERVER_URL : self::WIDGET_SERVER_URL;
+        $url = $base_url . self::WIDGET_SERVER_LOGS_ENDPOINT;
+        $result = $this->make_call($url, 'POST', $logs);
+        
+        return $result;
+    }
+
     /**
      * @param string $endpoint
      *
@@ -172,6 +221,31 @@ class Service_V2 implements Service_V2_Interface
     }
 
     /**
+     * Check if the URL requires Bearer authentication
+     * 
+     * @param string $url
+     * @return bool
+     */
+    private function needs_bearer_auth($url)
+    {
+        // Don't use Bearer auth for authentication, widget server, or feature flag calls
+        $skip_bearer_patterns = [
+            'authentication',
+            self::STAGING_WIDGET_SERVER_URL,
+            self::WIDGET_SERVER_URL,
+            self::EXPRESS_CHECKOUT_FLAG_ENDPOINT
+        ];
+        
+        foreach ($skip_bearer_patterns as $pattern) {
+            if (strpos($url, $pattern) !== false) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    /**
      * @param string $url
      * @param string $method
      * @param array $request
@@ -183,7 +257,8 @@ class Service_V2 implements Service_V2_Interface
     private function make_call($url, $method, $request = [], $addl_headers = [])
     {
         $headers = ['Content-Type' => 'application/json'];
-        if (!strpos($url, 'authentication')) {
+        
+        if ($this->needs_bearer_auth($url)) {
             $checkout_api = strpos($url, 'checkouts') !== false && !strpos($url, 'complete');
             $response = $this->authenticate($this->keys, $checkout_api ? wc_get_checkout_url() : '');
 
@@ -214,6 +289,11 @@ class Service_V2 implements Service_V2_Interface
                 break;
             case 'GET':
                 $response = wp_remote_get($url, $args);
+                break;
+            case 'PATCH':
+                $args['method'] = 'PATCH';
+                $response = wp_remote_request($url, $args);
+                break;
         }
 
         $encoded_response_body = wp_remote_retrieve_body($response);
@@ -232,7 +312,7 @@ class Service_V2 implements Service_V2_Interface
         $accepted_response_codes = ['200', '201', '204'];
 
         if (!in_array($response_code, $accepted_response_codes) && !$unauthed) {
-            throw new Exception('Error processing the request', $response_code);
+            throw new Exception('Error processing the request', (int)$response_code);
         }
 
         return $response_body;

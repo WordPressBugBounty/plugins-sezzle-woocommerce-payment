@@ -2,8 +2,8 @@
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
 Requires at least: 5.6.0
-Version: 6.0.3
-Stable tag: 6.0.3
+Version: 6.1.5
+Stable tag: 6.1.5
 Tested up to: 6.7.3
 Requires PHP: 8.0
 License: GPLv2 or later
@@ -30,6 +30,34 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 For more information, please visit [Sezzle Docs](https://docs.sezzle.com/#woocommerce).
 
 == Changelog ==
+
+= 6.1.5 = 
+* Further improve caching mechanism to reduce API calls and improve performance in multi-worker environment
+* Load Express checkout button loading handle async await functionality from checkout SDK
+* Lazy load scripts on product, cart, and checkout pages
+* Restrict API calls on cache misses to only cart, checkout, and admin settings pages
+* Forward WooCommerce order details to Sezzle on callback error for troubleshooting
+* Prevent redundantly logging calls to /log endpoint
+
+= 6.1.4 =
+* FIX: Prevent duplicate metadata record which led to uncaptured issue for abandoned cart retries
+
+= 6.1.3 =
+* FIX: Improve express checkout button styling
+* Improve logging
+* Improved caching strategy
+
+= 6.1.2 =
+* FIX: Save and display billing address for express checkout orders
+* FIX: Save payment method title for table view
+* FIX: Reduce unnecessary API calls to Sezzle for authentication and feature flag
+* FIX: Increase cache storage for improved performance
+
+= 6.1.1 =
+* FIX: Check feature flag response
+
+= 6.1.0 =
+* Add Express Checkout feature (feature flagged for limited release)
 
 = 6.0.3 =
 * FIX: Remedy installment widget issue where sezzle-modal-overlay is undefined
