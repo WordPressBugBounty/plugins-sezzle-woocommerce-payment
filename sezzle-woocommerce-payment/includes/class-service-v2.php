@@ -13,6 +13,7 @@ class Service_V2 implements Service_V2_Interface
     const REFUND_ENDPOINT = '/v2/order/%s/refund';
     const CONFIGURATION_ENDPOINT = '/v2/configuration';
     const MERCHANT_ORDERS_ENDPOINT = '/v1/merchant_data/woocommerce/merchant_orders';
+    const EVENT_LOGGING_ENDPOINT = '/sdk-event-logging';
     const LOG_ENDPOINT = '/v1/logs/%s';
     const EXPRESS_CHECKOUT_FLAG_ENDPOINT = '/v2/feature-flags/is-express-checkout';
     const UPDATE_CHECKOUT_ENDPOINT = '/v2/order/%s/checkout';
@@ -101,6 +102,20 @@ class Service_V2 implements Service_V2_Interface
     public function capture($sezzle_order_uuid, $request)
     {
         $url = $this->get_url(sprintf(self::CAPTURE_ENDPOINT, $sezzle_order_uuid));
+
+        return $this->make_call($url, 'POST', $request);
+    }
+
+    /**
+     * Log event to Sezzle SDK event logging endpoint
+     *
+     * @param array $request The event data to log
+     * @return mixed
+     * @throws Exception
+     */
+    public function log_event($request)
+    {
+        $url = $this->get_url(self::EVENT_LOGGING_ENDPOINT);
 
         return $this->make_call($url, 'POST', $request);
     }

@@ -830,6 +830,7 @@ class Sezzle_Checkout {
 			$redirect_url = wc_get_checkout_url();
 			try {
 				$checkout_data = $gateway->format_checkout_data(null, $posted_data);
+				sezzle_save_cart_fees_to_session();
 				$session = $gateway->redirect_to_checkout($checkout_data);
 				$redirect_url = $session['redirect_url'];
 				WC()->session->set( 'sezzle_order_uuid', $session['order_uuid'] );

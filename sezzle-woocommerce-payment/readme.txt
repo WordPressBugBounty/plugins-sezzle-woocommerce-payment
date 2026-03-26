@@ -2,8 +2,8 @@
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
 Requires at least: 5.6.0
-Version: 6.1.5
-Stable tag: 6.1.5
+Version: 6.1.6
+Stable tag: 6.1.6
 Tested up to: 6.7.3
 Requires PHP: 8.0
 License: GPLv2 or later
@@ -30,6 +30,12 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 For more information, please visit [Sezzle Docs](https://docs.sezzle.com/#woocommerce).
 
 == Changelog ==
+
+= 6.1.6 = 
+* Resolve capture issue related to third-party plugins when Create Order Post Checkout Completion is enabled
+* Send logs to Sezzle if standard checkout results in totals mismatch
+* Disable express checkout if merchant removed from feature-flag
+* Only load installment-widget code on Checkouts page
 
 = 6.1.5 = 
 * Further improve caching mechanism to reduce API calls and improve performance in multi-worker environment

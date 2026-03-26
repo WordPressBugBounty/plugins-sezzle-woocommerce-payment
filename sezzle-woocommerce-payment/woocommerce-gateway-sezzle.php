@@ -2,7 +2,7 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 6.1.5
+Version: 6.1.6
 Author: Sezzle
 Author URI: https://www.sezzle.com/
 Tested up to: 6.7.3
@@ -74,6 +74,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			const EXPRESS_CHECKOUT_MODE_IFRAME = 'iframe';
 			const EXPRESS_CHECKOUT_API_CALL_LOCK_KEY = 'sezzle_api_call_lock_';
 			const EXPRESS_CHECKOUT_CACHE_KEY = 'sezzle_express_checkout_enabled_';
+			const ERROR_CART_AMOUNT_MISMATCH = 'Cart amount has been updated';
 			const EXPRESS_SDK_URL = "https://checkout-sdk.sezzle.com/express_checkout.min.js";
 
 			public function __construct() {
@@ -110,11 +111,11 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			 */
 			private function get_cache_ttl($use_long_cache = true) {
 				// Differentiate cache duration:
-				// - Successes: 1 hour (feature flags change infrequently)
-				// - Auth errors (401): 1 hour (likely offboarded merchant, no point retrying frequently)
+				// - Successes: 2 hours (feature flags change infrequently)
+				// - Auth errors (401): 2 hours (likely offboarded merchant, no point retrying frequently)
 				// - Other errors (network/service): 15 minutes (might recover quickly from brief outages)
 				if ($use_long_cache) {
-					return 3600; // 1 hour for successes and authentication failures
+					return 7200; // 2 hours for successes and authentication failures
 				}
 				return 900; // 15 minutes for service/network failures
 			}
@@ -884,9 +885,12 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $posted_data = WC()->session->get('posted_data');
                 $sezzle_checkout = Sezzle_Checkout::instance();
                 $sezzle_checkout->process_customer($posted_data);
+
+                add_action('woocommerce_cart_calculate_fees', 'sezzle_restore_cart_fees_callback', 999);
                 WC()->cart->calculate_totals();
 
                 $order_id = WC()->checkout()->create_order($posted_data);
+                sezzle_cleanup_stored_cart_fees();
                 $order = $this->get_order($order_id);
 
                 switch (true) {
@@ -917,7 +921,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $woo_order_amount_in_cents = Sezzle_Utils::formatToCents($order->get_total());
 
                 if ($woo_order_amount_in_cents !== $sezzle_order->order_amount->amount_in_cents) {
-                    $msg = sprintf('Unable to complete payment. Cart amount has been updated to %s.', $order->get_formatted_order_total());
+                    $msg = sprintf('Unable to complete payment. %s to %s.', self::ERROR_CART_AMOUNT_MISMATCH, $order->get_formatted_order_total());
                     $this->log($msg);
                     throw new Exception(__($msg, 'woo_sezzlepay'));
                 }
@@ -1074,14 +1078,33 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
              * @return void
              */
             private function handle_payment_exception($exception, $sezzle_order_uuid = null, $order = null) {
-                $this->log($exception->getMessage());
+                $message = $exception->getMessage() ?: __('An unknown error occurred during payment processing. Please contact Sezzle support.', 'woo_sezzlepay');
+                $this->log($message);
 
                 $txn_mode = $this->get_option('transaction-mode');
                 $service_v2 = new Service_V2($txn_mode, $this->get_keys());
                 $merchant_uuid = $this->get_option('merchant-id');
+
+                // Add gateway event logging for cart amount mismatch
+                if ($order instanceof WC_Order && strpos($message, self::ERROR_CART_AMOUNT_MISMATCH) !== false) {
+                    try {
+                        $log_data = [
+                            // "event" is used here for direct gateway API calls;
+                            // the checkout SDK's logEvent uses "status" and converts it to "event" internally
+                            'event' => 'CAPTURE_FAILED',
+                            'order_uuid' => $sezzle_order_uuid,
+                            'mode' => $txn_mode,
+                            'message' => $message . ' ' . json_encode($this->get_order_json($order))
+                        ];
+                        $service_v2->log_event($log_data);
+                    } catch (Exception $e) {
+                        $this->log('Failed to send gateway log event: ' . $e->getMessage());
+                    }
+                }
+
                 $service_v2->send_logs($merchant_uuid, json_encode($this->get_logs()), $sezzle_order_uuid, $this->get_order_json($order));
 
-                wc_add_notice($exception->getMessage(), 'error');
+                wc_add_notice($message, 'error');
                 wp_redirect(wc_get_checkout_url());
                 exit;
             }
@@ -1506,6 +1529,63 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 && $gateway->get_option('enable-order-creation-post-checkout') === 'yes';
         }
 
+        /**
+         * Save current cart fees to the WooCommerce session so they can be
+         * restored when the order is created after the customer returns from
+         * Sezzle checkout.  Third-party fee plugins add fees via the
+         * woocommerce_cart_calculate_fees hook, which may not fire correctly
+         * outside the original checkout page context.
+         */
+        function sezzle_save_cart_fees_to_session()
+        {
+            $fees = WC()->cart->get_fees();
+            if (empty($fees)) {
+                return;
+            }
+
+            $fee_snapshot = [];
+            foreach ($fees as $fee) {
+                $fee_snapshot[] = [
+                    'name'      => $fee->name,
+                    'amount'    => $fee->amount,
+                    'taxable'   => $fee->taxable,
+                    'tax_class' => $fee->tax_class,
+                ];
+            }
+            WC()->session->set('sezzle_stored_cart_fees', $fee_snapshot);
+        }
+
+        /**
+         * Callback for woocommerce_cart_calculate_fees that re-adds any stored
+         * fees which were not already added by their originating plugin.
+         * Runs at priority 999 so all other fee hooks execute first.
+         */
+        function sezzle_restore_cart_fees_callback()
+        {
+            $stored_fees = WC()->session->get('sezzle_stored_cart_fees');
+            if (empty($stored_fees) || !WC()->cart) {
+                return;
+            }
+
+            $current_fee_ids = array_keys(WC()->cart->get_fees());
+            foreach ($stored_fees as $fee) {
+                $fee_id = sanitize_title($fee['name']);
+                if (!in_array($fee_id, $current_fee_ids, true)) {
+                    WC()->cart->add_fee($fee['name'], $fee['amount'], $fee['taxable'], $fee['tax_class']);
+                }
+            }
+        }
+
+        /**
+         * Remove the temporary fee-restoration hook and clear stored fees
+         * from the session.
+         */
+        function sezzle_cleanup_stored_cart_fees()
+        {
+            remove_action('woocommerce_cart_calculate_fees', 'sezzle_restore_cart_fees_callback', 999);
+            WC()->session->__unset('sezzle_stored_cart_fees');
+        }
+
         function sezzle_checkout()
         {
             $gateway = WC_Gateway_Sezzlepay::instance();
@@ -1751,6 +1831,11 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 		 * @return void
 		 */
 		function frontend_enqueue_scripts() {
+			// Early return if not on checkout page - prevents loading on every page
+			if ( ! is_checkout() && ! has_block( 'woocommerce/checkout' ) ) {
+				return;
+			}
+
             $gateway = WC_Gateway_Sezzlepay::instance();
             if ($gateway->get_option('enabled') == 'no' || $gateway->get_option('enable-installment-widget') == 'no') {
                 return;
@@ -1884,6 +1969,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 						'ajax_url' => admin_url('admin-ajax.php'),
 						'szl_ec_start_nonce' => wp_create_nonce("szl_ec_start_nonce"),
 						'szl_ec_complete_nonce' => wp_create_nonce("szl_ec_complete_nonce"),
+						'error_cart_amount_mismatch' => WC_Gateway_Sezzlepay::ERROR_CART_AMOUNT_MISMATCH,
 					)
 				);
 			}
@@ -1921,10 +2007,24 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 		 */
 		function are_express_checkout_options_enabled() {
 			$gateway = WC_Gateway_Sezzlepay::instance();
+
+			// Check if main Sezzle gateway is enabled
 			$enabled = $gateway->get_option('enabled') !== 'no';
+			if (!$enabled) {
+				return false;
+			}
+
+			// Check if merchant has express checkout setting enabled in database
 			$express_enabled = $gateway->get_option('enable-express-checkout') !== 'no';
-			$result = $enabled && $express_enabled;
-			return $result;
+			if (!$express_enabled) {
+				return false;
+			}
+
+			// Check the feature flag from Sezzle gateway
+			// This uses the 3-level cache system (request → transient → API)
+			// ensuring we always respect the feature flag state even if the
+			// database option is stale due to AJAX request filtering or cache delays
+			return (bool) $gateway->check_express_checkout_feature_flag();
 		}
 
 		/**
@@ -2086,7 +2186,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			if ( ! WC()->cart || WC()->cart->is_empty() ) {
 				throw new Exception( __( 'Cart is empty or not available.', 'woo_sezzlepay' ) );
 			}
-			
+
+			add_action('woocommerce_cart_calculate_fees', 'sezzle_restore_cart_fees_callback', 999);
 			WC()->cart->calculate_fees();
 			WC()->cart->calculate_totals();
 			
@@ -2149,6 +2250,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			// Add note
 			$order->add_order_note( __( 'Order created programmatically from cart through express checkout.', 'woo_sezzlepay' ) );
 
+			sezzle_cleanup_stored_cart_fees();
+
 			return $order;
 		}
 
@@ -2175,15 +2278,17 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				$order = null;
 				if (!allow_create_order_post_checkout()) {
 					$order = create_order_from_cart_data();
+				} else {
+					sezzle_save_cart_fees_to_session();
 				}
 
 				$checkout_data = get_express_checkout_data($checkout_source, $order);
 				$min_amount = WC_Gateway_Sezzlepay::instance()->get_option('min-checkout-amount');
-				
+
 				if ($min_amount && ($checkout_data['amount_in_cents'] < ($min_amount * 100))) {
 					throw new Exception('Cart total below minimum amount');
 				}
-			
+
 				wp_send_json_success([
 					'checkout_data' => $checkout_data
 				]);
@@ -2440,7 +2545,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				// If this is a cart amount mismatch error, include order data for logging
 				// The exception is thrown from should_capture_payment() which receives $order as parameter
 				if (isset($order) && $order instanceof WC_Order && 
-					strpos($e->getMessage(), 'Cart amount has been updated') !== false) {
+					strpos($e->getMessage(), WC_Gateway_Sezzlepay::ERROR_CART_AMOUNT_MISMATCH) !== false) {
 					
 					// Extract order items
 					$items = [];
