@@ -2,7 +2,7 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 6.1.6
+Version: 6.1.7
 Author: Sezzle
 Author URI: https://www.sezzle.com/
 Tested up to: 6.7.3
@@ -886,8 +886,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $sezzle_checkout = Sezzle_Checkout::instance();
                 $sezzle_checkout->process_customer($posted_data);
 
-                add_action('woocommerce_cart_calculate_fees', 'sezzle_restore_cart_fees_callback', 999);
-                WC()->cart->calculate_totals();
+                sezzle_restore_missing_cart_fees();
 
                 $order_id = WC()->checkout()->create_order($posted_data);
                 sezzle_cleanup_stored_cart_fees();
@@ -1556,33 +1555,84 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
         }
 
         /**
-         * Callback for woocommerce_cart_calculate_fees that re-adds any stored
-         * fees which were not already added by their originating plugin.
-         * Runs at priority 999 so all other fee hooks execute first.
+         * Restore any stored cart fees that other plugins failed to re-add.
+         *
+         * Two-pass approach:
+         * 1. Calculate totals normally so ALL other plugins add their fees
+         * 2. Compare resulting cart fees to stored snapshot by name+amount counts
+         * 3. If any are missing, add only those and recalculate
+         *
+         * This handles both:
+         * - Third-party plugins that already restored their own fees (avoids duplicates)
+         * - Legitimate duplicate fees like bundle discounts (preserves multiples)
          */
-        function sezzle_restore_cart_fees_callback()
+        function sezzle_restore_missing_cart_fees()
         {
             $stored_fees = WC()->session->get('sezzle_stored_cart_fees');
             if (empty($stored_fees) || !WC()->cart) {
                 return;
             }
 
-            $current_fee_ids = array_keys(WC()->cart->get_fees());
+            // Pass 1: calculate totals so all plugins add their fees
+            WC()->cart->calculate_totals();
+
+            // Count occurrences of each name+amount pair in the current cart fees
+            $current_counts = [];
+            foreach (WC()->cart->get_fees() as $fee) {
+                $key = $fee->name . '|' . $fee->amount;
+                $current_counts[$key] = ($current_counts[$key] ?? 0) + 1;
+            }
+
+            // Count occurrences of each name+amount pair in stored fees
+            $stored_counts = [];
             foreach ($stored_fees as $fee) {
-                $fee_id = sanitize_title($fee['name']);
-                if (!in_array($fee_id, $current_fee_ids, true)) {
-                    WC()->cart->add_fee($fee['name'], $fee['amount'], $fee['taxable'], $fee['tax_class']);
+                $key = $fee['name'] . '|' . $fee['amount'];
+                $stored_counts[$key] = ($stored_counts[$key] ?? 0) + 1;
+            }
+
+            // Build lookup of stored fees grouped by name|amount
+            $stored_fees_by_key = [];
+            foreach ($stored_fees as $fee) {
+                $stored_fees_by_key[$fee['name'] . '|' . $fee['amount']][] = $fee;
+            }
+
+            // Determine which fees are missing
+            $missing_fees = [];
+            foreach ($stored_counts as $key => $stored_count) {
+                $current_count = $current_counts[$key] ?? 0;
+                $missing = $stored_count - $current_count;
+                if ($missing > 0) {
+                    $missing_fees = array_merge(
+                        $missing_fees,
+                        array_slice($stored_fees_by_key[$key], 0, $missing)
+                    );
                 }
             }
+
+            if (empty($missing_fees)) {
+                return;
+            }
+
+            // Pass 2: register a hook to add only the missing fees, then recalculate
+            $add_missing = function () use ($missing_fees, &$add_missing) {
+                remove_action('woocommerce_cart_calculate_fees', $add_missing, PHP_INT_MAX);
+                foreach ($missing_fees as $fee) {
+                    WC()->cart->add_fee($fee['name'], $fee['amount'], $fee['taxable'], $fee['tax_class']);
+                }
+            };
+            add_action('woocommerce_cart_calculate_fees', $add_missing, PHP_INT_MAX);
+            try {
+				WC()->cart->calculate_totals();
+			} finally {
+				remove_action('woocommerce_cart_calculate_fees', $add_missing, PHP_INT_MAX);
+			}
         }
 
         /**
-         * Remove the temporary fee-restoration hook and clear stored fees
-         * from the session.
+         * Clear stored fees from the session.
          */
         function sezzle_cleanup_stored_cart_fees()
         {
-            remove_action('woocommerce_cart_calculate_fees', 'sezzle_restore_cart_fees_callback', 999);
             WC()->session->__unset('sezzle_stored_cart_fees');
         }
 
@@ -2187,10 +2237,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				throw new Exception( __( 'Cart is empty or not available.', 'woo_sezzlepay' ) );
 			}
 
-			add_action('woocommerce_cart_calculate_fees', 'sezzle_restore_cart_fees_callback', 999);
-			WC()->cart->calculate_fees();
 			WC()->cart->calculate_totals();
-			
+
 			// Create a new order
 			$order = wc_create_order();
 			if ( ! $order ) {
@@ -2274,11 +2322,12 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				if (!WC()->cart || WC()->cart->is_empty()) {
 					throw new Exception('Cart not available or empty');
 				}
-				
+
 				$order = null;
 				if (!allow_create_order_post_checkout()) {
 					$order = create_order_from_cart_data();
 				} else {
+					WC()->cart->calculate_totals();
 					sezzle_save_cart_fees_to_session();
 				}
 
