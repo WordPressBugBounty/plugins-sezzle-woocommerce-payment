@@ -2,7 +2,7 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 6.1.7
+Version: 6.1.8
 Author: Sezzle
 Author URI: https://www.sezzle.com/
 Tested up to: 6.7.3
@@ -913,7 +913,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
              */
             private function should_capture_payment($sezzle_order, $order)
             {
-                if ($sezzle_order?->authorization?->captures) {
+                if (!empty($sezzle_order->authorization->captures)) {
                     return false;
                 }
 
