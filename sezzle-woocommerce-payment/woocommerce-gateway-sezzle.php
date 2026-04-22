@@ -2,7 +2,7 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 6.1.8
+Version: 6.1.9
 Author: Sezzle
 Author URI: https://www.sezzle.com/
 Tested up to: 6.7.3
@@ -76,6 +76,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			const EXPRESS_CHECKOUT_CACHE_KEY = 'sezzle_express_checkout_enabled_';
 			const ERROR_CART_AMOUNT_MISMATCH = 'Cart amount has been updated';
 			const EXPRESS_SDK_URL = "https://checkout-sdk.sezzle.com/express_checkout.min.js";
+			const EXPRESS_CHECKOUT_DEFAULT_BUTTON_TARGET = 'wc-proceed-to-checkout';
 
 			public function __construct() {
 				$this->id                 = 'sezzlepay';
@@ -480,10 +481,26 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 									self::EXPRESS_CHECKOUT_MODE_IFRAME => __('IFrame', 'woocommerce'),
 								),
 							);
+							$new_form_fields['express-checkout-button-target'] = array(
+								'title' => __('Express Checkout Button Location', 'woo_sezzlepay'),
+								'type' => 'text',
+								'description' => __(
+									'Class name of the element where the Express Checkout button will be rendered (e.g. wc-proceed-to-checkout)',
+									'woo_sezzlepay'
+								),
+								'default' => self::EXPRESS_CHECKOUT_DEFAULT_BUTTON_TARGET,
+							);
+							$new_form_fields['express-checkout-no-shipping'] = array(
+								'title' => __('Digital Products Only', 'woo_sezzlepay'),
+								'type' => 'checkbox',
+								'label' => __('I never ship physical products', 'woo_sezzlepay'),
+								'description' => __('When enabled, express checkout will not collect shipping information from the customer.', 'woo_sezzlepay'),
+								'default' => 'no',
+								'desc_tip' => true,
+							);
 							$express_fields_added = true;
 						}
 					}
-					
 					$this->form_fields = $new_form_fields;
 				} else if (!$skipped_check) {
 					// Only clear options if we actually performed a check and it returned false
@@ -887,6 +904,14 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $sezzle_checkout->process_customer($posted_data);
 
                 sezzle_restore_missing_cart_fees();
+
+                // Ensure cart totals (including shipping packages) are calculated
+                // even when sezzle_restore_missing_cart_fees() returned early due
+                // to no stored fees. Without this, create_order() won't find
+                // shipping packages on a fresh page load (return from Sezzle).
+                if (empty(WC()->session->get('sezzle_stored_cart_fees'))) {
+                    WC()->cart->calculate_totals();
+                }
 
                 $order_id = WC()->checkout()->create_order($posted_data);
                 sezzle_cleanup_stored_cart_fees();
@@ -2011,6 +2036,11 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 					wp_script_add_data('sezzle_express_checkout', 'defer', true);
 				}
 
+				$ec_cart_button_target = $gateway->get_option("express-checkout-button-target");
+				if (empty($ec_cart_button_target)) {
+					$ec_cart_button_target = WC_Gateway_Sezzlepay::EXPRESS_CHECKOUT_DEFAULT_BUTTON_TARGET;
+				}
+
 				wp_localize_script('sezzle_express_checkout', 'sezzle_express_checkout',
 					array(
 						'mode' => $gateway->get_option("express-checkout-mode"),
@@ -2020,6 +2050,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 						'szl_ec_start_nonce' => wp_create_nonce("szl_ec_start_nonce"),
 						'szl_ec_complete_nonce' => wp_create_nonce("szl_ec_complete_nonce"),
 						'error_cart_amount_mismatch' => WC_Gateway_Sezzlepay::ERROR_CART_AMOUNT_MISMATCH,
+						'szl_ec_button_target_class' => $ec_cart_button_target,
+						'no_shipping' => $gateway->get_option('express-checkout-no-shipping') === 'yes',
 					)
 				);
 			}
@@ -2106,17 +2138,6 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				return;
 			}
 			express_button_setup();
-			echo '
-			<tr>
-				<td colspan="100%" style="text-align: center; padding: 10px;">
-                    <div id="sezzle-smart-button-container-cart" 
-                         checkoutSource="cart" 
-                         borderType="semi-rounded" 
-						 templateText="%%logo%% Express Checkout"
-							style="font-size: medium; text-align: center; -webkit-font-smoothing: initial; width: 100%; min-height: 50px; display: flex; align-items: center; justify-content: center;">
-					</div>
-				</td>
-			</tr>';
         }
 
 		/**

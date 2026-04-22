@@ -2,8 +2,8 @@
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
 Requires at least: 5.6.0
-Version: 6.1.8
-Stable tag: 6.1.8
+Version: 6.1.9
+Stable tag: 6.1.9
 Tested up to: 6.7.3
 Requires PHP: 8.0
 License: GPLv2 or later
@@ -30,6 +30,11 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 For more information, please visit [Sezzle Docs](https://docs.sezzle.com/#woocommerce).
 
 == Changelog ==
+
+= 6.1.9 =
+* Capture shipping method in order details when "Create order post checkout completion" is enabled and there are no additional fees
+* Express checkout subfeature: Do not require shipping methods if merchant does not ship
+* Express checkout subfeature: Customize button placement on cart page
 
 = 6.1.8 =
 * Resolve small edge case re: Undefined property: stdClass::$captures
