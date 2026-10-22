@@ -37,7 +37,7 @@ final class WC_Gateway_Sezzlepay_Blocks extends AbstractPaymentMethodType {
      */
     public function get_payment_method_script_handles() {
         $handle = $this->name . '-blocks-integration';
-        $payment_block_asset_path = plugin_dir_url(__FILE__) . 'build/js/frontend/payment-block.asset.php';
+        $payment_block_asset_path = plugin_dir_path(__FILE__) . 'build/js/frontend/payment-block.asset.php';
         $payment_block_version = '';
         $payment_block_dependencies = [];
 
@@ -60,7 +60,7 @@ final class WC_Gateway_Sezzlepay_Blocks extends AbstractPaymentMethodType {
         );
 
         if (function_exists('wp_set_script_translations')) {
-            wp_set_script_translations($handle);
+            wp_set_script_translations($handle, 'woo_sezzlepay', plugin_dir_path(__FILE__) . 'i18n/languages');
         }
 
         return [$handle];
@@ -75,6 +75,7 @@ final class WC_Gateway_Sezzlepay_Blocks extends AbstractPaymentMethodType {
             'description' => $this->gateway->description,
             'icon' => $this->gateway->icon,
             'placeOrderButtonLabel' => __('Continue to Sezzle', 'woo_sezzlepay'),
+            'minCheckoutAmountInCents' => sezzle_min_checkout_amount_in_cents(),
             'supports' => $this->get_supported_features()
         ];
     }

@@ -3,6 +3,36 @@
 require_once WC_GATEWAY_SEZZLEPAY_PATH . '/includes/class-service-v2-interface.php';
 require_once WC_GATEWAY_SEZZLEPAY_PATH . '/includes/class-sezzle-utils.php';
 
+/**
+ * A non-2xx response from Sezzle. Carries the decoded body so callers can act on
+ * Sezzle's error code (e.g. checkout_captured, checkout_expired).
+ */
+class Sezzle_Api_Exception extends Exception
+{
+    private $response_body;
+
+    public function __construct($message, $code, $response_body)
+    {
+        parent::__construct($message, $code);
+        $this->response_body = $response_body;
+    }
+
+    /**
+     * The first error object in the response body, or null if there is none.
+     * Sezzle may return a single error object or a list of them.
+     *
+     * @return object|null
+     */
+    public function get_error()
+    {
+        $body = $this->response_body;
+        if (is_array($body)) {
+            $body = reset($body);
+        }
+        return is_object($body) ? $body : null;
+    }
+}
+
 class Service_V2 implements Service_V2_Interface
 {
     const GATEWAY_URL = 'https://%sgateway.sezzle.com';
@@ -12,7 +42,6 @@ class Service_V2 implements Service_V2_Interface
     const CAPTURE_ENDPOINT = '/v2/order/%s/capture';
     const REFUND_ENDPOINT = '/v2/order/%s/refund';
     const CONFIGURATION_ENDPOINT = '/v2/configuration';
-    const MERCHANT_ORDERS_ENDPOINT = '/v1/merchant_data/woocommerce/merchant_orders';
     const EVENT_LOGGING_ENDPOINT = '/sdk-event-logging';
     const LOG_ENDPOINT = '/v1/logs/%s';
     const EXPRESS_CHECKOUT_FLAG_ENDPOINT = '/v2/feature-flags/is-express-checkout';
@@ -27,34 +56,39 @@ class Service_V2 implements Service_V2_Interface
 
     private $keys;
 
+    private $disable_on_unauthorized;
+
     /**
      * @param string $api_mode
      * @param array|null $keys
+     * @param array $options Behaviour toggles. Supported keys:
+     *        - 'disable_on_unauthorized' (bool, default true): when true, a 401 from
+     *          the /v2/authentication endpoint disables the gateway and clears the
+     *          stored keys. Pass false from flows where the merchant is actively
+     *          entering keys (settings validation), so a failed attempt rejects the
+     *          save instead of destructively disabling the gateway.
      */
-    public function __construct($api_mode, $keys = [])
+    public function __construct($api_mode, $keys = [], array $options = [])
     {
         $this->api_mode = $api_mode;
         $this->keys = $keys;
+        $this->disable_on_unauthorized = $options['disable_on_unauthorized'] ?? true;
         $this->utils = new Sezzle_Utils();
     }
 
     /**
      * @param array $keys
-     * @param string $cancel_url
+     * @param int $timeout Request timeout in seconds
      *
      * @return mixed
      * @throws Exception
      */
-    public function authenticate($keys, $cancel_url = '')
+    public function authenticate($keys, $timeout = 80)
     {
         $request = [
             'public_key' => $keys['public_key'],
             'private_key' => $keys['private_key']
         ];
-
-        if (!empty($cancel_url)) {
-            $request['cancel_url'] = $cancel_url;
-        }
 
         $headers = [];
         $platform_details = $this->utils->get_encoded_platform_details();
@@ -64,7 +98,7 @@ class Service_V2 implements Service_V2_Interface
 
         $url = $this->get_url(self::AUTH_ENDPOINT);
 
-        return $this->make_call($url, 'POST', $request, $headers);
+        return $this->make_call($url, 'POST', $request, $headers, $timeout);
     }
 
     /**
@@ -135,6 +169,11 @@ class Service_V2 implements Service_V2_Interface
 
             return $this->make_call($url, 'POST', $request);
         } catch (Exception $e) {
+            // Log shipping is best-effort and must not interrupt the caller's flow,
+            // but record the failure locally rather than swallowing it silently.
+            WC_Gateway_Sezzlepay::instance()->log(
+                'Failed to send logs to Sezzle: ' . $e->getMessage()
+            );
         }
         return false;
     }
@@ -166,32 +205,32 @@ class Service_V2 implements Service_V2_Interface
         return $this->make_call($url, 'POST', $request);
     }
 
-    /**
-     * @param array $request
-     *
-     * @return mixed
-     * @throws Exception
-     */
-    public function send_merchant_orders($request)
-    {
-        $url = $this->get_url(self::MERCHANT_ORDERS_ENDPOINT);
-
-        return $this->make_call($url, 'POST', $request);
-    }
-
      /**
      * Check if express checkout feature flag is enabled
-     * 
+     *
+     * Returns false without calling the gateway when no public key is configured,
+     * so the endpoint is never hit with an empty Basic auth credential. This is the
+     * normal state for a store that installed the plugin but never entered keys, and
+     * the check runs on cart, product, and checkout views, so it stays silent rather
+     * than logging the same non-actionable message on every page view.
+     *
      * @return bool
      */
     public function is_express_checkout_enabled()
-    {  
+    {
+        $public_key = isset($this->keys['public_key']) ? $this->keys['public_key'] : '';
+        if (empty($public_key)) {
+            return false;
+        }
+
         $url = $this->get_url(self::EXPRESS_CHECKOUT_FLAG_ENDPOINT);
-        
+
         // Use Basic auth with public key for feature flag endpoint
-        $headers = ['Authorization' => 'Basic ' . base64_encode($this->keys['public_key'])];
-        
-        return $this->make_call($url, 'GET', [], $headers);
+        $headers = ['Authorization' => 'Basic ' . base64_encode($public_key)];
+
+        // Short timeout: this runs while cart, product, and checkout pages render,
+        // so a slow gateway must not hold the page (a failure is cached briefly).
+        return $this->make_call($url, 'GET', [], $headers, 5);
     }
 
     /**
@@ -204,12 +243,11 @@ class Service_V2 implements Service_V2_Interface
      */
     public function update_checkout($sezzle_order_uuid, $request)
     {
-        try {
-            $url = $this->get_url(sprintf(self::UPDATE_CHECKOUT_ENDPOINT, $sezzle_order_uuid));
-            return $this->make_call($url, 'PATCH', $request);
-        } catch (Exception $e) {
-            throw new Exception('Error calling sezzle order update request');
-        }
+        // Let make_call's exception propagate unchanged so the caller keeps the real
+        // HTTP status code and Sezzle's error; dump_api_actions has already logged
+        // the failing endpoint.
+        $url = $this->get_url(sprintf(self::UPDATE_CHECKOUT_ENDPOINT, $sezzle_order_uuid));
+        return $this->make_call($url, 'PATCH', $request);
     }
 
     public function send_widget_server_logs($logs)
@@ -261,26 +299,45 @@ class Service_V2 implements Service_V2_Interface
     }
 
     /**
+     * Whether a 401 from this URL should disable the gateway and clear keys.
+     *
+     * Covers the gateway authentication endpoint, used directly and to mint the
+     * Bearer token for the other API calls.
+     *
+     * @param string $url
+     * @return bool
+     */
+    private function is_auth_failure_url($url)
+    {
+        // Path-only, suffix comparison so query strings or sibling paths like
+        // /v2/authentication-tokens can't create false positives that would fire
+        // the auto-disable on an unrelated endpoint.
+        $path = parse_url($url, PHP_URL_PATH);
+        return $path !== null && substr($path, -strlen(self::AUTH_ENDPOINT)) === self::AUTH_ENDPOINT;
+    }
+
+    /**
      * @param string $url
      * @param string $method
      * @param array $request
      * @param array $addl_headers
+     * @param int $timeout Request timeout in seconds
      *
      * @return mixed
      * @throws Exception
      */
-    private function make_call($url, $method, $request = [], $addl_headers = [])
+    private function make_call($url, $method, $request = [], $addl_headers = [], $timeout = 80)
     {
         $headers = ['Content-Type' => 'application/json'];
         
         if ($this->needs_bearer_auth($url)) {
-            $checkout_api = strpos($url, 'checkouts') !== false && !strpos($url, 'complete');
-            $response = $this->authenticate($this->keys, $checkout_api ? wc_get_checkout_url() : '');
-
-            if ($checkout_api && !isset($response->token) && ('unauthed_checkout_url' === $response->code)) {
-                return (object)['checkout_url' => $response->message];
+            $response = $this->authenticate($this->keys);
+            // A 2xx authentication response without a token leaves nothing to authorize
+            // with. Fail here rather than send the request with an empty Bearer header,
+            // which would come back as a 401 that looks like rejected credentials.
+            if (!is_object($response) || empty($response->token)) {
+                throw new Exception('Sezzle authentication succeeded but returned no token');
             }
-
             $headers = array_merge($headers, ['Authorization' => 'Bearer ' . $response->token]);
         }
 
@@ -293,7 +350,7 @@ class Service_V2 implements Service_V2_Interface
         $args = [
             'headers' => $headers,
             'body' => $body,
-            'timeout' => 80,
+            'timeout' => $timeout,
             'redirection' => 35,
         ];
 
@@ -323,11 +380,20 @@ class Service_V2 implements Service_V2_Interface
         );
 
         $response_body = json_decode($encoded_response_body);
-        $unauthed = isset($response_body->code) && $response_body->code === 'unauthed_checkout_url';
         $accepted_response_codes = ['200', '201', '204'];
 
-        if (!in_array($response_code, $accepted_response_codes) && !$unauthed) {
-            throw new Exception('Error processing the request', (int)$response_code);
+        // A 401 from the authentication endpoint means the stored API keys are no
+        // longer valid. Disable Sezzle and clear the keys so shoppers aren't shown a
+        // broken payment option until the merchant re-enters valid keys.
+        if ($this->disable_on_unauthorized
+            && (int)$response_code === 401
+            && $this->is_auth_failure_url($url)
+        ) {
+            $gateway->disable_due_to_unauthorized();
+        }
+
+        if (!in_array($response_code, $accepted_response_codes)) {
+            throw new Sezzle_Api_Exception('Error processing the request', (int)$response_code, $response_body);
         }
 
         return $response_body;

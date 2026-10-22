@@ -2,16 +2,16 @@
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
 Requires at least: 5.6.0
-Version: 6.1.9
-Stable tag: 6.1.9
-Tested up to: 6.7.3
+Version: 7.0.0
+Stable tag: 7.0.0
+Tested up to: 7.1.3
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
-Sezzle is an alternative payment platform that increases sales and basket sizes by enabling your customers to 'buy now and pay later' with interest-free installment plans. Sezzle collects 25% of the purchase price from the consumer at the time of purchase, but pays the merchant the full purchase price upfront, less their fee. The merchant assumes no credit or fraud risk. Sezzle then schedules three additional installments of 25% to be automatically debited from the consumer every two weeks, completely interest- and fee-free.
+Sezzle is an alternative payment platform that increases sales and basket sizes by enabling your customers to 'buy now and pay later' with biweekly installment plans. Sezzle collects the first installment from the consumer at the time of purchase, but pays the merchant the full purchase price upfront, minus their fee. The merchant assumes no credit or fraud risk. Sezzle then schedules the additional installments to be automatically debited from the consumer every two weeks.
 
-Sezzle is ideal for merchants that cater to young consumers, with order values typically between $50-$750, although we do accept orders up to $1,000. Sezzle increases consumers' purchasing power and is most heavily used by those without a credit card (63% of millennials do not own a credit card), or those with a very low credit limit on their card. However, a wide range of consumers use Sezzle, both in terms of age and financial situation.
+Sezzle is ideal for merchants that cater to young consumers, with order values typically between $50-$750, although we do accept orders up to $2,500. Sezzle increases consumers' purchasing power and is most heavily used by those without a credit card (63% of millennials do not own a credit card), or those with a very low credit limit on their card. However, a wide range of consumers use Sezzle, both in terms of age and financial situation.
 
 Our extension includes a payment gateway, which will enable Sezzle as a payment option in your checkout. Once a customer selects Sezzle as their payment option, they are redirected to our secure checkout, after which they are taken back to your store to view purchase details. The extension also includes a widget that displays a dynamic installment amount on your product and cart pages, which is proven to increase conversions and basket sizes.
 
@@ -23,13 +23,50 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 3. Install the Sezzle Payment plugin and activate.
 4. Go to admin > WooCommerce > Settings > Payments > Sezzle.
 5. Fill the form according to the instructions given in the form and save it.
-
+    - For more information, please visit [Sezzle Docs](https://docs.sezzle.com/docs/plugins/woocommerce).
 
 ### Your store is ready to use Sezzle as a payment gateway.
 
-For more information, please visit [Sezzle Docs](https://docs.sezzle.com/#woocommerce).
+== Screenshots ==
+
+1. Installment messaging and the Express Checkout button on a product page
+2. Cart page widget and Express Checkout button
+3. Sezzle at checkout, with the installment plan
+4. The redesigned Sezzle settings page
+5. Express Checkout button settings for the product and cart pages
 
 == Changelog ==
+
+= 7.0.0 =
+New features:
+* Express Checkout on product pages: shoppers can check out a single product with Sezzle, and their cart is restored afterward
+* Express Checkout button style customizations
+* Cart Page Widget option
+* "Settings" link on the Plugins screen
+* French translations
+
+Enhancements:
+* Redesigned Sezzle settings page, grouped into clear sections, with required API key fields marked
+* Merchant ID now fills in automatically when saving valid API keys
+* Sezzle widgets and Express Checkout buttons now work on block-based themes
+* Installment messaging customized for the shopper's country
+* Faster pages: fewer background calls to Sezzle, and a slow Sezzle response can no longer hold up your store
+* Clearer logs for troubleshooting, with API keys and shopper personal details no longer written to them
+
+Bug fixes:
+* FIX: Express Checkout orders now record the shipping method the shopper picked as a real WooCommerce shipping line
+* FIX: Express Checkout no longer leaves duplicate, orphaned or underpaid orders
+* FIX: Express Checkout now works on multi-currency stores: payments are charged in the shopper's selected currency instead of failing or being captured in the wrong currency
+* FIX: If Sezzle can't confirm a capture, the order is put On Hold with a note to check your Sezzle Merchant Dashboard, instead of being marked paid or failed
+* FIX: A refund Sezzle rejects is now shown as a failed refund with the reason, instead of an error
+* FIX: Express Checkout settings are no longer switched off when Sezzle is temporarily unreachable
+* FIX: If your API keys stop working, Sezzle switches itself off and shows an admin notice that stays until you dismiss it or save working keys
+
+Deprecations and changes:
+* Sezzle is offered only to shoppers in the United States, Canada and U.S. territories. The "Payment option availability in other countries" setting was removed
+* Removed the payment method Title setting; Sezzle always appears as "Sezzle" at checkout
+* Removed the "Sync Orders" (analytical data sync) setting
+* The two Order Total Container class name settings are replaced by a single Order Total Container Selector; existing values are migrated automatically
 
 = 6.1.9 =
 * Capture shipping method in order details when "Create order post checkout completion" is enabled and there are no additional fees

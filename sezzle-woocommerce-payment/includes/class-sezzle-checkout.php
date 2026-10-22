@@ -831,11 +831,14 @@ class Sezzle_Checkout {
 			try {
 				$checkout_data = $gateway->format_checkout_data(null, $posted_data);
 				sezzle_save_cart_fees_to_session();
+				sezzle_store_checkout_order_attribution();
 				$session = $gateway->redirect_to_checkout($checkout_data);
 				$redirect_url = $session['redirect_url'];
 				WC()->session->set( 'sezzle_order_uuid', $session['order_uuid'] );
 			} catch (Exception $e) {
-				$result = 'failure';
+				$gateway->log( 'Unable to create Sezzle session: ' . $e->getMessage() );
+				wc_add_notice( __( 'Sorry, there was a problem preparing your payment.', 'woo_sezzlepay' ), 'error' );
+				$this->send_ajax_failure_response();
 			}
 
 			if ( !wp_doing_ajax() ) {
@@ -848,6 +851,7 @@ class Sezzle_Checkout {
 				'redirect' => $redirect_url,
 			]);
 		} catch ( Exception $e ) {
+			WC_Gateway_Sezzlepay::instance()->log( 'Checkout processing failed: ' . $e->getMessage() );
 			wc_add_notice( $e->getMessage(), 'error' );
 		}
 		$this->send_ajax_failure_response();

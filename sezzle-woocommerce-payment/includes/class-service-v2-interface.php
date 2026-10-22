@@ -18,8 +18,6 @@ interface Service_V2_Interface {
 
 	public function post_configuration( $request );
 
-	public function send_merchant_orders( $request );
-
 	public function is_express_checkout_enabled();
 
 	public function update_checkout( $sezzle_order_uuid, $request );
