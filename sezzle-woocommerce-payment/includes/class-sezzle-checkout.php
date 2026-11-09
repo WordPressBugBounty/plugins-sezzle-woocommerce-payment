@@ -748,6 +748,18 @@ class Sezzle_Checkout {
 	}
 
 	/**
+	 * Posted checkout data without the account registration fields.
+	 *
+	 * @param array $data Posted data.
+	 * @return array
+	 */
+	protected function without_account_fields( $data ) {
+		unset( $data['account_password'], $data['account_username'] );
+		$data['createaccount'] = 0;
+		return $data;
+	}
+
+	/**
 	 * If checkout failed during an AJAX call, send failure response.
 	 */
 	protected function send_ajax_failure_response() {
@@ -824,6 +836,16 @@ class Sezzle_Checkout {
 			if ( wc_notice_count( 'error' ) > 0 ) {
 				$this->send_ajax_failure_response();
 			}
+
+			// Create the shopper's account now, before they pay, as WooCommerce's own checkout
+			// does. Left to the return from Sezzle, a rejected registration (email already
+			// registered, a registration CAPTCHA) surfaced only after the shopper had authorized,
+			// so the authorization was never captured. Throws to the catch below on failure.
+			$this->process_customer( $posted_data );
+
+			// The account exists and the shopper is logged in, so the return from Sezzle must
+			// not register them again, and the stored checkout data doesn't need the password.
+			WC()->session->set( 'posted_data', $this->without_account_fields( $posted_data ) );
 
 			$gateway = WC_Gateway_Sezzlepay::instance();
 			$result = 'success';

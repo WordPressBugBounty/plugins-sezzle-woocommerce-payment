@@ -144,14 +144,15 @@ class Service_V2 implements Service_V2_Interface
      * Log event to Sezzle SDK event logging endpoint
      *
      * @param array $request The event data to log
+     * @param int $timeout Request timeout in seconds
      * @return mixed
      * @throws Exception
      */
-    public function log_event($request)
+    public function log_event($request, $timeout = 80)
     {
         $url = $this->get_url(self::EVENT_LOGGING_ENDPOINT);
 
-        return $this->make_call($url, 'POST', $request);
+        return $this->make_call($url, 'POST', $request, [], $timeout);
     }
 
     public function send_logs($merchant_uuid, $logs, $sezzle_order_uuid = null, $order_details = null)

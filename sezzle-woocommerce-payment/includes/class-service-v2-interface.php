@@ -10,7 +10,7 @@ interface Service_V2_Interface {
 
 	public function capture( $sezzle_order_uuid, $request );
 
-	public function log_event( $request );
+	public function log_event( $request, $timeout = 80 );
 
     public function send_logs( $merchant_uuid, $logs, $sezzle_order_uuid = null, $order_details = null);
 

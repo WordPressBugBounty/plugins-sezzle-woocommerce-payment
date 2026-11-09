@@ -2,9 +2,9 @@
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
 Requires at least: 5.6.0
-Version: 7.0.0
-Stable tag: 7.0.0
-Tested up to: 7.1.3
+Version: 7.0.1
+Stable tag: 7.0.1
+Tested up to: 7.1.4
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
@@ -36,6 +36,14 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 5. Express Checkout button settings for the product and cart pages
 
 == Changelog ==
+
+= 7.0.1 =
+Enhancements:
+* When authorized orders fail to capture, detailed logs are sent to Sezzle (shopper PII redacted)
+
+Bug fixes:
+* FIX: With "Create order post checkout completion" on, CAPTCHA plugin passes
+* FIX: With "Create order post checkout completion" on, shopper account creation is validated and completed prior to being redirected to Sezzle
 
 = 7.0.0 =
 New features:

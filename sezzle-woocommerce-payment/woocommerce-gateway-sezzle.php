@@ -2,15 +2,15 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 7.0.0
+Version: 7.0.1
 Author: Sezzle
 Author URI: https://www.sezzle.com/
 Requires at least: 5.6.0
-Tested up to: 7.1.3
+Tested up to: 7.1.4
 Requires PHP: 8.0
 Copyright: © 2026 Sezzle
 WC requires at least: 5.0
-WC tested up to: 11.2.1
+WC tested up to: 11.2.2
 Text Domain: woo_sezzlepay
 Domain Path: /i18n/languages/
 
@@ -1067,6 +1067,22 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				return $data;
 			}
 
+			/**
+			 * Mask email addresses in a log message. redact_for_log() covers fields of logged
+			 * request/response bodies, but free-text messages (e.g. WooCommerce's "An account is
+			 * already registered with <email>") carry the shopper's address too, and the log is
+			 * uploaded to Sezzle when a payment fails.
+			 *
+			 * @param mixed $message
+			 * @return mixed
+			 */
+			public static function redact_emails( $message ) {
+				if ( ! is_string( $message ) ) {
+					return $message;
+				}
+				return preg_replace( '/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/', '[redacted email]', $message );
+			}
+
 			public function log( $message ) {
 				if ( $this->get_option( 'logging' ) == 'no' ) {
 					return;
@@ -1074,7 +1090,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				if ( empty( self::$log ) ) {
 					self::$log = new WC_Logger();
 				}
-				self::$log->add( 'sezzlepay', $message );
+				self::$log->add( 'sezzlepay', self::redact_emails( $message ) );
 			}
 
 
@@ -1350,6 +1366,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                     if ($order_key) {
                         $order = $this->get_order(wc_get_order_id_by_order_key($order_key));
                         if (!$order || $order->get_payment_method() !== $this->id) {
+                            $sezzle_order_uuid = $this->log_unmatched_return($order) ?: null;
                             throw new Exception(__('Unable to find the order for this payment.', 'woo_sezzlepay'));
                         }
                         $order_reference_id = $order->get_transaction_id();
@@ -1400,6 +1417,49 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                     $this->handle_payment_exception($e, $sezzle_order_uuid, $order, $created_order);
                 }
             }
+
+			/**
+			 * Log why a return from Sezzle carrying an order key can't be matched to a Sezzle
+			 * order, and whether the shopper had approved the Sezzle checkout, so a payment
+			 * left authorized but uncaptured can be told apart from a stray or stale request.
+			 *
+			 * @param WC_Order|false|null $order The order the key resolved to, if any.
+			 * @return string The order's Sezzle order UUID, or '' if none is known.
+			 */
+			private function log_unmatched_return($order) {
+				if (!$order) {
+					$this->log('Return from Sezzle: no order matches the order key in the return URL.');
+					return '';
+				}
+
+				$sezzle_order_uuid = (string) $order->get_meta('sezzle_order_uuid', true);
+				$this->log(sprintf(
+					'Return from Sezzle for order #%d, but its payment method is now "%s" (order status: %s, Sezzle order UUID: %s).',
+					$order->get_id(),
+					$order->get_payment_method(),
+					$order->get_status(),
+					$sezzle_order_uuid ?: 'none'
+				));
+
+				if ($sezzle_order_uuid) {
+					try {
+						$sezzle_order = $this->get_sezzle_order_details($sezzle_order_uuid);
+						$authorization = is_object($sezzle_order) ? ($sezzle_order->authorization ?? null) : null;
+						$this->log(sprintf(
+							'Sezzle order %s: %s, %d capture(s).',
+							$sezzle_order_uuid,
+							$this->is_sezzle_order_authorized($sezzle_order)
+								? sprintf('authorized %d %s', (int) ($authorization->authorization_amount->amount_in_cents ?? 0), $authorization->authorization_amount->currency ?? '')
+								: 'not authorized',
+							count((array) ($authorization->captures ?? []))
+						));
+					} catch (Exception $e) {
+						$this->log('Unable to retrieve Sezzle order ' . $sezzle_order_uuid . ': ' . $e->getMessage());
+					}
+				}
+
+				return $sezzle_order_uuid;
+			}
 
 			/**
 			 * Whether the shopper approved this Sezzle checkout.
@@ -1497,6 +1557,14 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                     // expired: the shopper has to submit checkout again.
                     throw new Exception(__('Unable to create order.', 'woo_sezzlepay'));
                 }
+
+                // This request is the return from Sezzle (wc-api), not the checkout page, but
+                // it finishes the shopper's checkout. Without this, is_checkout() is false and
+                // plugins that skip checkout requests run their non-checkout checks instead,
+                // e.g. Simple Cloudflare Turnstile's registration CAPTCHA on account creation,
+                // which fails because the return request carries no CAPTCHA token.
+                wc_maybe_define_constant('WOOCOMMERCE_CHECKOUT', true);
+
                 $sezzle_checkout = Sezzle_Checkout::instance();
                 $sezzle_checkout->process_customer($posted_data);
 
@@ -1815,22 +1883,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $service_v2 = new Service_V2($txn_mode, $this->get_keys());
                 $merchant_uuid = $this->get_option('merchant-id');
 
-                // Add gateway event logging for cart amount mismatch
-                if ($order instanceof WC_Order && strpos($message, self::ERROR_CART_AMOUNT_MISMATCH) !== false) {
-                    try {
-                        $log_data = [
-                            // "event" is used here for direct gateway API calls;
-                            // the checkout SDK's logEvent uses "status" and converts it to "event" internally
-                            'event' => 'CAPTURE_FAILED',
-                            'order_uuid' => $sezzle_order_uuid,
-                            'mode' => $txn_mode,
-                            'message' => $message . ' ' . json_encode($this->get_order_json($order))
-                        ];
-                        $service_v2->log_event($log_data);
-                    } catch (Exception $e) {
-                        $this->log('Failed to send gateway log event: ' . $e->getMessage());
-                    }
-                }
+                $this->report_capture_failure($message, $sezzle_order_uuid, $order, 'callback');
 
                 // The log endpoint is keyed by the Merchant ID, which a Sandbox store may
                 // hold as its production UUID (kept for the widgets, see
@@ -1868,6 +1921,132 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				} else {
 					$order->delete(true);
 				}
+			}
+
+			/**
+			 * Report a payment that Sezzle's checkout didn't turn into a captured order to
+			 * the gateway, which writes the event to its request log (searchable in
+			 * Grafana), unlike the log upload, which is stored where most teams can't read
+			 * it. Sent in both modes. Best-effort: never throws.
+			 *
+			 * @param string        $message           The failure reason.
+			 * @param string|null   $sezzle_order_uuid
+			 * @param WC_Order|null $order
+			 * @param string        $flow              'callback' (return from Sezzle) or 'express'.
+			 * @return void
+			 */
+			public function report_capture_failure( $message, $sezzle_order_uuid, $order, $flow ) {
+				try {
+					$txn_mode = $this->get_option( 'transaction-mode' );
+					$details  = $this->get_failure_details( $order );
+					$details['flow'] = $flow;
+					$log_data = [
+						// "event" is used here for direct gateway API calls;
+						// the checkout SDK's logEvent uses "status" and converts it to "event" internally
+						'event'      => 'CAPTURE_FAILED',
+						'order_uuid' => $sezzle_order_uuid ?: '',
+						'mode'       => $txn_mode,
+						'message'    => self::redact_emails( (string) $message ) . ' ' . json_encode( $details ),
+					];
+					// Short timeout: the shopper is waiting on this response.
+					( new Service_V2( $txn_mode, $this->get_keys() ) )->log_event( $log_data, 5 );
+				} catch ( Exception $e ) {
+					$this->log( 'Failed to send gateway log event: ' . $e->getMessage() );
+				}
+			}
+
+			/**
+			 * Price details for a failed payment: the order's, or, when no order exists yet
+			 * (post-checkout order creation failed before creating it), the cart's, in the
+			 * same shape. Price data only, no shopper details.
+			 *
+			 * @param WC_Order|null $order
+			 * @return array
+			 */
+			private function get_failure_details( $order ) {
+				if ( $order instanceof WC_Order ) {
+					$details = $this->get_order_json( $order );
+					$details['source']   = 'order';
+					$details['order_id'] = $order->get_id();
+					$details['status']   = $order->get_status();
+				} else {
+					$details = $this->get_cart_json();
+					$details['source'] = 'cart';
+				}
+				$details['capture_attempted'] = $this->capture_attempted;
+				return $details;
+			}
+
+			/**
+			 * Get the current cart in the shape of get_order_json() (data related to price only).
+			 *
+			 * @return array Empty if there is no cart.
+			 */
+			private function get_cart_json() {
+				$cart = function_exists( 'WC' ) && WC() ? WC()->cart : null;
+				if ( ! $cart ) {
+					return [];
+				}
+
+				$line_items = [];
+				foreach ( $cart->get_cart() as $item ) {
+					$product      = $item['data'] ?? null;
+					$quantity     = (float) ( $item['quantity'] ?? 0 );
+					$line_items[] = [
+						'name'         => $product ? $product->get_name() : '',
+						'product_id'   => $item['product_id'] ?? 0,
+						'variation_id' => $item['variation_id'] ?? 0,
+						'quantity'     => $quantity,
+						'subtotal'     => $item['line_subtotal'] ?? 0,
+						'subtotal_tax' => $item['line_subtotal_tax'] ?? 0,
+						'total'        => $item['line_total'] ?? 0,
+						'total_tax'    => $item['line_tax'] ?? 0,
+						'sku'          => $product ? $product->get_sku() : '',
+						'price'        => $quantity > 0 ? ( $item['line_total'] ?? 0 ) / $quantity : ( $item['line_total'] ?? 0 ),
+					];
+				}
+
+				$fee_lines = [];
+				foreach ( $cart->get_fees() as $fee ) {
+					$fee_lines[] = [
+						'name'      => $fee->name,
+						'tax_class' => $fee->tax_class,
+						'total'     => $fee->total ?? $fee->amount,
+						'total_tax' => $fee->tax ?? 0,
+					];
+				}
+
+				$coupon_lines = [];
+				foreach ( $cart->get_applied_coupons() as $code ) {
+					$coupon_lines[] = [
+						'code'         => $code,
+						'discount'     => $cart->get_coupon_discount_amount( $code ),
+						'discount_tax' => $cart->get_coupon_discount_tax_amount( $code ),
+					];
+				}
+
+				$shipping_lines = [];
+				$chosen         = WC()->session ? (array) WC()->session->get( 'chosen_shipping_methods', [] ) : [];
+				foreach ( array_filter( $chosen ) as $method_id ) {
+					$shipping_lines[] = [ 'method_id' => $method_id ];
+				}
+
+				$totals = $cart->get_totals();
+				return [
+					'currency'           => get_woocommerce_currency(),
+					'discount_total'     => $totals['discount_total'] ?? 0,
+					'discount_tax'       => $totals['discount_tax'] ?? 0,
+					'shipping_total'     => $totals['shipping_total'] ?? 0,
+					'shipping_tax'       => $totals['shipping_tax'] ?? 0,
+					'cart_tax'           => $totals['cart_contents_tax'] ?? 0,
+					'total'              => $totals['total'] ?? 0,
+					'total_tax'          => $totals['total_tax'] ?? 0,
+					'prices_include_tax' => wc_prices_include_tax(),
+					'line_items'         => $line_items,
+					'shipping_lines'     => $shipping_lines,
+					'fee_lines'          => $fee_lines,
+					'coupon_lines'       => $coupon_lines,
+				];
 			}
 
 			/**
@@ -2918,7 +3097,6 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 					'szl_ec_complete_nonce' => wp_create_nonce("szl_ec_complete_nonce"),
 					'szl_ec_verify_auth_nonce' => wp_create_nonce("szl_ec_verify_auth_nonce"),
 					'szl_ec_widget_log_nonce' => wp_create_nonce("szl_ec_widget_log_nonce"),
-					'error_cart_amount_mismatch' => WC_Gateway_Sezzlepay::ERROR_CART_AMOUNT_MISMATCH,
 					'szl_ec_button_target_class' => $ec_cart_button_target,
 					'szl_ec_product_button_target_class' => $ec_product_button_target,
 					'product_id' => $ec_product_id,
@@ -4298,6 +4476,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			$order = null;
 			$created_order = false;
 			$sezzle_order_uuid = '';
+			$authorized = false;
 			try {
 				if (!wp_verify_nonce($_POST['nonce'] ?? '', "szl_ec_complete_nonce")) {
 					throw new Exception('Invalid request');
@@ -4330,7 +4509,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				if (!$gateway->is_sezzle_order_authorized($sezzle_order_details)) {
 					throw new Exception(__('Sezzle was unable to complete your payment. Please try again or choose another payment method.', 'woo_sezzlepay'));
 				}
-				
+				$authorized = true;
+
 				// Get or create WooCommerce Order
 				$order_id = wc_get_order_id_by_order_key($reference_id);
 				// Scenario: If merchant flips the create_order_post_checkout setting while the shopper is at checkout, 
@@ -4456,37 +4636,11 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 					'message' => $e->getMessage(),
 				];
 
-				// If this is a cart amount mismatch error, include order data for logging
-				// The exception is thrown from should_capture_payment() which receives $order as parameter
-				if (isset($order) && $order instanceof WC_Order && 
-					strpos($e->getMessage(), WC_Gateway_Sezzlepay::ERROR_CART_AMOUNT_MISMATCH) !== false) {
-					
-					// Extract order items
-					$items = [];
-					foreach ($order->get_items() as $item_id => $item) {
-						$product = $item->get_product();
-						$items[] = [
-							'name' => $item->get_name(),
-							'sku' => $product ? $product->get_sku() : '',
-							'quantity' => $item->get_quantity(),
-							'price' => [
-								'amount_in_cents' => Sezzle_Utils::formatToCents($item->get_subtotal() / $item->get_quantity()),
-								'currency' => $order->get_currency()
-							]
-						];
-					}
-					
-					// Get order totals
-					$error_data['wc_order_data'] = [
-						'items' => $items,
-						'price' => floatval($order->get_subtotal()),
-						'tax' => floatval($order->get_total_tax()),
-						'shipping' => floatval($order->get_shipping_total()),
-						'fees' => floatval($order->get_fees() ? array_sum(array_map(function($fee) {
-							return $fee->get_amount();
-						}, $order->get_fees())) : 0),
-						'total' => floatval($order->get_total()),
-					];
+				// The shopper approved the payment but it wasn't captured: report why, with
+				// the order's (or cart's) price details. Failures before approval was
+				// confirmed (bad request, unapproved checkout) aren't capture failures.
+				if ($authorized) {
+					WC_Gateway_Sezzlepay::instance()->report_capture_failure($e->getMessage(), $sezzle_order_uuid, $order, 'express');
 				}
 
 				// Match the classic callback: an order created here, after the shopper
