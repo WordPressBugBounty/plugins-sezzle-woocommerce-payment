@@ -2,8 +2,8 @@
 Contributors: sezzledev
 Tags: sezzle, installments, payments, paylater
 Requires at least: 5.6.0
-Version: 7.0.1
-Stable tag: 7.0.1
+Version: 7.0.2
+Stable tag: 7.0.2
 Tested up to: 7.1.4
 Requires PHP: 8.0
 License: GPLv2 or later
@@ -36,6 +36,14 @@ Our extension includes a payment gateway, which will enable Sezzle as a payment 
 5. Express Checkout button settings for the product and cart pages
 
 == Changelog ==
+
+= 7.0.2 =
+Bug fixes:
+* FIX: On Checkout Block stores, an approved Sezzle payment is no longer left uncaptured with "Unable to find the order for this payment" when the checkout page is reloaded or updated while the shopper is on Sezzle
+* FIX: With "Create order post checkout completion" on, an approved Sezzle payment is no longer rejected with "Unable to find the Sezzle checkout for this order" or "Order reference ID not matching" when another checkout request overwrote the shopper's session
+* FIX: With "Create order post checkout completion" on, when the WooCommerce order can't be created after the shopper approves (e.g. a coupon usage limit or a shipping method check), the Sezzle authorization is released instead of being left uncaptured
+* FIX: With "Create order post checkout completion" on, when a shopper has checkout open in several tabs or windows, only the first order they complete is kept; a Sezzle checkout started before it is released instead of creating a second order
+* FIX: When a shopper approves more than one Sezzle checkout for the same order (several tabs, or a restarted checkout), the return captures the checkout the shopper finished, a later one can still complete the order if an earlier one's capture was rejected, and the order's other approved checkouts are released once it is paid, so an order is captured once and refunds go to the captured checkout
 
 = 7.0.1 =
 Enhancements:

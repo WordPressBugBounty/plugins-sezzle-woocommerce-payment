@@ -857,6 +857,9 @@ class Sezzle_Checkout {
 				$session = $gateway->redirect_to_checkout($checkout_data);
 				$redirect_url = $session['redirect_url'];
 				WC()->session->set( 'sezzle_order_uuid', $session['order_uuid'] );
+				// The session can be overwritten by a concurrent request before the shopper
+				// returns; the return looks the UUID up by reference ID first.
+				WC_Gateway_Sezzlepay::remember_checkout_session( $checkout_data['order']['reference_id'] ?? '', $session['order_uuid'] );
 			} catch (Exception $e) {
 				$gateway->log( 'Unable to create Sezzle session: ' . $e->getMessage() );
 				wc_add_notice( __( 'Sorry, there was a problem preparing your payment.', 'woo_sezzlepay' ), 'error' );

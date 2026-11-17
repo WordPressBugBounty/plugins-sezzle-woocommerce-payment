@@ -41,6 +41,7 @@ class Service_V2 implements Service_V2_Interface
     const ORDER_ENDPOINT = '/v2/order/%s';
     const CAPTURE_ENDPOINT = '/v2/order/%s/capture';
     const REFUND_ENDPOINT = '/v2/order/%s/refund';
+    const RELEASE_ENDPOINT = '/v2/order/%s/release';
     const CONFIGURATION_ENDPOINT = '/v2/configuration';
     const EVENT_LOGGING_ENDPOINT = '/sdk-event-logging';
     const LOG_ENDPOINT = '/v1/logs/%s';
@@ -177,6 +178,22 @@ class Service_V2 implements Service_V2_Interface
             );
         }
         return false;
+    }
+
+    /**
+     * Release (part of) an authorization that will not be captured.
+     *
+     * @param string $sezzle_order_uuid
+     * @param array $request ['amount_in_cents' => int, 'currency' => string]
+     *
+     * @return mixed
+     * @throws Exception
+     */
+    public function release($sezzle_order_uuid, $request)
+    {
+        $url = $this->get_url(sprintf(self::RELEASE_ENDPOINT, $sezzle_order_uuid));
+
+        return $this->make_call($url, 'POST', $request);
     }
 
     /**

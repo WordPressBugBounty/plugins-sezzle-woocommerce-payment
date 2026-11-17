@@ -2,14 +2,14 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Sezzle WooCommerce Payment 7.0.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/sezzle-woocommerce-payment\n"
+"POT-Creation-Date: 2026-11-16T18:16:26+00:00\n"
+"PO-Revision-Date: 2026-07-09 00:00+0000\n"
 "Last-Translator: Sezzle <hello@sezzle.com>\n"
 "Language-Team: French\n"
+"Language: fr_CA\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-08-06T21:01:50+00:00\n"
-"PO-Revision-Date: 2026-07-09 00:00+0000\n"
-"Language: fr_CA\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 "X-Domain: woo_sezzlepay\n"
 
@@ -24,10 +24,8 @@ msgid "Buy Now Pay Later with Sezzle"
 msgstr "Achetez maintenant, payez plus tard avec Sezzle"
 
 #. Author of the plugin
-#: woocommerce-gateway-sezzle.php
-#: woocommerce-gateway-sezzle.php:134
-#: woocommerce-gateway-sezzle.php:165
-#: build/js/frontend/payment-block.js:1
+#: woocommerce-gateway-sezzle.php woocommerce-gateway-sezzle.php:164
+#: woocommerce-gateway-sezzle.php:195 build/js/frontend/payment-block.js:1
 msgid "Sezzle"
 msgstr ""
 
@@ -36,407 +34,417 @@ msgstr ""
 msgid "https://www.sezzle.com/"
 msgstr ""
 
+#: includes/class-sezzle-checkout.php:865 woocommerce-gateway-sezzle.php:1220
+msgid "Sorry, there was a problem preparing your payment."
+msgstr "Désolé, un problème est survenu lors de la préparation de votre paiement."
+
 #: woocommerce-gateway-sezzle-blocks.php:77
 #: build/js/frontend/payment-block.js:1
 msgid "Continue to Sezzle"
 msgstr "Continuer vers Sezzle"
 
-#: woocommerce-gateway-sezzle.php:135
+#: woocommerce-gateway-sezzle.php:165
 msgid "Buy Now and Pay Later with Sezzle."
 msgstr "Achetez maintenant et payez plus tard avec Sezzle."
 
-#: woocommerce-gateway-sezzle.php:499
+#: woocommerce-gateway-sezzle.php:446
+msgid "IFrame mode may cause Content Security Policy (CSP) issues. Please reach out to Sezzle support before using it to make sure your domain is allowlisted."
+msgstr "Le mode IFrame peut entraîner des problèmes de politique de sécurité du contenu (CSP). Veuillez contacter l’assistance Sezzle avant de l’utiliser afin de vous assurer que votre domaine figure sur la liste d’autorisation."
+
+#: woocommerce-gateway-sezzle.php:531
 msgid "General"
 msgstr "Général"
 
-#: woocommerce-gateway-sezzle.php:504
+#: woocommerce-gateway-sezzle.php:536
 msgid "Transaction Mode"
 msgstr "Mode de transaction"
 
-#: woocommerce-gateway-sezzle.php:514
+#: woocommerce-gateway-sezzle.php:541
+msgid "Sandbox"
+msgstr "Bac à sable"
+
+#: woocommerce-gateway-sezzle.php:542
+msgid "Live"
+msgstr "Production"
+
+#: woocommerce-gateway-sezzle.php:546
 msgid "Public Key"
 msgstr "Clé publique"
 
-#: woocommerce-gateway-sezzle.php:516
-#: woocommerce-gateway-sezzle.php:527
+#: woocommerce-gateway-sezzle.php:548 woocommerce-gateway-sezzle.php:559
 msgid "Find under Settings > API Keys in the Sezzle Dashboard that corresponds to the selected Transaction Mode."
 msgstr "Disponible sous Paramètres > Clés API dans le tableau de bord Sezzle correspondant au mode de transaction sélectionné."
 
-#: woocommerce-gateway-sezzle.php:525
+#: woocommerce-gateway-sezzle.php:557
 msgid "Private Key"
 msgstr "Clé privée"
 
-#: woocommerce-gateway-sezzle.php:536
+#: woocommerce-gateway-sezzle.php:568
 msgid "Enable Sezzle"
 msgstr "Activer Sezzle"
 
-#: woocommerce-gateway-sezzle.php:538
-#: woocommerce-gateway-sezzle.php:561
-#: woocommerce-gateway-sezzle.php:733
-#: woocommerce-gateway-sezzle.php:739
-#: woocommerce-gateway-sezzle.php:750
-#: woocommerce-gateway-sezzle.php:790
+#: woocommerce-gateway-sezzle.php:570 woocommerce-gateway-sezzle.php:593
+#: woocommerce-gateway-sezzle.php:765 woocommerce-gateway-sezzle.php:771
+#: woocommerce-gateway-sezzle.php:782 woocommerce-gateway-sezzle.php:822
 msgid "Enabled"
 msgstr "Activé"
 
-#: woocommerce-gateway-sezzle.php:539
+#: woocommerce-gateway-sezzle.php:571
 msgid "Enables/Disables the Sezzle payment method"
 msgstr "Active ou désactive le mode de paiement Sezzle"
 
-#: woocommerce-gateway-sezzle.php:547
+#: woocommerce-gateway-sezzle.php:579
 msgid "Minimum Checkout Amount"
 msgstr "Montant minimum de commande"
 
-#: woocommerce-gateway-sezzle.php:551
+#: woocommerce-gateway-sezzle.php:583
 msgid "Hides the payment method below this amount"
 msgstr "Masque le mode de paiement en dessous de ce montant"
 
-#: woocommerce-gateway-sezzle.php:559
+#: woocommerce-gateway-sezzle.php:591
 msgid "Create order post checkout completion"
 msgstr "Créer la commande après la finalisation du paiement"
 
-#: woocommerce-gateway-sezzle.php:562
+#: woocommerce-gateway-sezzle.php:594
 msgid "When enabled, abandoned Sezzle checkouts will not show in WooCommerce order table."
 msgstr "Lorsque cette option est activée, les paiements Sezzle abandonnés n’apparaissent pas dans le tableau des commandes WooCommerce."
 
-#: woocommerce-gateway-sezzle.php:592
+#: woocommerce-gateway-sezzle.php:624
 msgid "Express Checkout"
 msgstr "Paiement express"
 
-#: woocommerce-gateway-sezzle.php:597
+#: woocommerce-gateway-sezzle.php:629
 msgid "Checkout Mode"
 msgstr "Mode de paiement"
 
-#: woocommerce-gateway-sezzle.php:600
+#: woocommerce-gateway-sezzle.php:632
 msgid "For security reasons, Sezzle must add your domain(s) to our Content Security Policy to allow iframe usage."
 msgstr "Pour des raisons de sécurité, Sezzle doit ajouter votre ou vos domaines à notre politique de sécurité du contenu (CSP) afin d’autoriser l’utilisation d’iframes."
 
-#: woocommerce-gateway-sezzle.php:608
+#: woocommerce-gateway-sezzle.php:635
+msgid "Pop Up"
+msgstr "Fenêtre surgissante"
+
+#: woocommerce-gateway-sezzle.php:636
+msgid "IFrame"
+msgstr "Cadre intégré (iFrame)"
+
+#: woocommerce-gateway-sezzle.php:640
 msgid "No Shipping"
 msgstr "Aucune livraison"
 
-#: woocommerce-gateway-sezzle.php:610
+#: woocommerce-gateway-sezzle.php:642
 msgid "I never ship physical products"
 msgstr "Je n’expédie jamais de produits physiques"
 
-#: woocommerce-gateway-sezzle.php:611
+#: woocommerce-gateway-sezzle.php:643
 msgid "By default, Express Checkout requires shipping options to be configured for your store. Enable this field to bypass this requirement."
 msgstr "Par défaut, le paiement express exige que des options de livraison soient configurées pour votre boutique. Activez ce champ pour contourner cette exigence."
 
-#: woocommerce-gateway-sezzle.php:616
+#: woocommerce-gateway-sezzle.php:648
 msgid "Product Page Button"
 msgstr "Bouton de la page produit"
 
-#: woocommerce-gateway-sezzle.php:621
-#: woocommerce-gateway-sezzle.php:664
+#: woocommerce-gateway-sezzle.php:653 woocommerce-gateway-sezzle.php:696
 msgid "Enable Button"
 msgstr "Activer le bouton"
 
-#: woocommerce-gateway-sezzle.php:623
+#: woocommerce-gateway-sezzle.php:655
 msgid "Show the Express Checkout button on product pages"
 msgstr "Afficher le bouton de paiement express sur les pages produit"
 
-#: woocommerce-gateway-sezzle.php:627
-#: woocommerce-gateway-sezzle.php:670
+#: woocommerce-gateway-sezzle.php:659 woocommerce-gateway-sezzle.php:702
 msgid "Container Selector"
 msgstr "Sélecteur de conteneur"
 
 #. translators: %s: example CSS selector matching the store's theme
-#: woocommerce-gateway-sezzle.php:631
+#: woocommerce-gateway-sezzle.php:663
 #, php-format
 msgid "Class name or CSS selector of the container the Express Checkout button will be rendered inside on the product page (e.g. %s)"
 msgstr "Nom de classe ou sélecteur CSS du conteneur dans lequel le bouton de paiement express sera affiché sur la page produit (par ex. %s)"
 
-#: woocommerce-gateway-sezzle.php:638
-#: woocommerce-gateway-sezzle.php:681
+#: woocommerce-gateway-sezzle.php:670 woocommerce-gateway-sezzle.php:713
 msgid "Width"
 msgstr "Largeur"
 
-#: woocommerce-gateway-sezzle.php:640
+#: woocommerce-gateway-sezzle.php:672
 msgid "CSS width of the button on the product page (e.g. 100%, fit-content, 250px)."
 msgstr "Largeur CSS du bouton sur la page produit (par ex. 100%, fit-content, 250px)."
 
-#: woocommerce-gateway-sezzle.php:645
-#: woocommerce-gateway-sezzle.php:688
+#: woocommerce-gateway-sezzle.php:677 woocommerce-gateway-sezzle.php:720
 msgid "Radius"
 msgstr "Rayon"
 
-#: woocommerce-gateway-sezzle.php:647
+#: woocommerce-gateway-sezzle.php:679
 msgid "CSS border-radius of the button on the product page (e.g. 4px)."
 msgstr "Rayon de bordure CSS du bouton sur la page produit (par ex. 4px)."
 
-#: woocommerce-gateway-sezzle.php:652
-#: woocommerce-gateway-sezzle.php:695
+#: woocommerce-gateway-sezzle.php:684 woocommerce-gateway-sezzle.php:727
 msgid "Margin"
 msgstr "Marge"
 
-#: woocommerce-gateway-sezzle.php:654
+#: woocommerce-gateway-sezzle.php:686
 msgid "CSS margin around the button on the product page (e.g. 10px 0)."
 msgstr "Marge CSS autour du bouton sur la page produit (par ex. 10px 0)."
 
-#: woocommerce-gateway-sezzle.php:659
+#: woocommerce-gateway-sezzle.php:691
 msgid "Cart Page Button"
 msgstr "Bouton de la page panier"
 
-#: woocommerce-gateway-sezzle.php:666
+#: woocommerce-gateway-sezzle.php:698
 msgid "Show the Express Checkout button on the cart page"
 msgstr "Afficher le bouton de paiement express sur la page panier"
 
 #. translators: %s: example CSS selector matching the store's cart page
-#: woocommerce-gateway-sezzle.php:674
+#: woocommerce-gateway-sezzle.php:706
 #, php-format
 msgid "Class name or CSS selector of the container the Express Checkout button will be rendered inside on the cart page (e.g. %s)"
 msgstr "Nom de classe ou sélecteur CSS du conteneur dans lequel le bouton de paiement express sera affiché sur la page panier (par ex. %s)"
 
-#: woocommerce-gateway-sezzle.php:683
+#: woocommerce-gateway-sezzle.php:715
 msgid "CSS width of the button on the cart page (e.g. 100%, 250px)."
 msgstr "Largeur CSS du bouton sur la page panier (par ex. 100%, 250px)."
 
-#: woocommerce-gateway-sezzle.php:690
+#: woocommerce-gateway-sezzle.php:722
 msgid "CSS border-radius of the button on the cart page (e.g. 4px)."
 msgstr "Rayon de bordure CSS du bouton sur la page panier (par ex. 4px)."
 
-#: woocommerce-gateway-sezzle.php:697
+#: woocommerce-gateway-sezzle.php:729
 msgid "CSS margin around the button on the cart page (e.g. 10px 0)."
 msgstr "Marge CSS autour du bouton sur la page panier (par ex. 10px 0)."
 
-#: woocommerce-gateway-sezzle.php:711
+#: woocommerce-gateway-sezzle.php:743
 msgid "On-Site Messaging"
 msgstr "Messagerie sur le site"
 
-#: woocommerce-gateway-sezzle.php:716
+#: woocommerce-gateway-sezzle.php:748
 msgid "Widgets"
 msgstr "Widgets"
 
-#: woocommerce-gateway-sezzle.php:721
+#: woocommerce-gateway-sezzle.php:753
 msgid "Merchant ID"
 msgstr "Identifiant marchand"
 
-#: woocommerce-gateway-sezzle.php:723
+#: woocommerce-gateway-sezzle.php:755
 msgid "Find under Settings > Business in the Sezzle Production Dashboard, even while testing in Sandbox mode. Saving valid API keys in Live mode will auto-fill your Live Merchant ID."
 msgstr "Disponible sous Paramètres > Entreprise dans le tableau de bord de production Sezzle, même lors des tests en mode Bac à sable. L’enregistrement de clés API valides en mode Production remplira automatiquement votre identifiant marchand de production."
 
-#: woocommerce-gateway-sezzle.php:731
+#: woocommerce-gateway-sezzle.php:763
 msgid "Product Page Widget"
 msgstr "Widget de la page produit"
 
-#: woocommerce-gateway-sezzle.php:737
+#: woocommerce-gateway-sezzle.php:769
 msgid "Cart Page Widget"
 msgstr "Widget de la page panier"
 
-#: woocommerce-gateway-sezzle.php:743
+#: woocommerce-gateway-sezzle.php:775
 msgid "Checkout Installments Plan"
 msgstr "Plan de versements à la caisse"
 
-#: woocommerce-gateway-sezzle.php:748
+#: woocommerce-gateway-sezzle.php:780
 msgid "Enable"
 msgstr "Activer"
 
-#: woocommerce-gateway-sezzle.php:768
+#: woocommerce-gateway-sezzle.php:800
 msgid "Order Total Container Selector"
 msgstr "Sélecteur du conteneur du total de la commande"
 
 #. translators: %s: example CSS selector matching the store's checkout
-#: woocommerce-gateway-sezzle.php:772
+#: woocommerce-gateway-sezzle.php:804
 #, php-format
 msgid "CSS selector of the checkout order-total element the installment widget attaches to (e.g. %s). Leave blank to fall back to automatic detection."
 msgstr "Sélecteur CSS de l’élément du total de commande à la caisse auquel le widget de versements se rattache (par ex. %s). Laissez ce champ vide pour utiliser la détection automatique."
 
-#: woocommerce-gateway-sezzle.php:783
+#: woocommerce-gateway-sezzle.php:815
 msgid "Logging"
 msgstr "Journalisation"
 
-#: woocommerce-gateway-sezzle.php:788
+#: woocommerce-gateway-sezzle.php:820
 msgid "Sezzle Logs"
 msgstr "Journaux Sezzle"
 
-#: woocommerce-gateway-sezzle.php:791
+#: woocommerce-gateway-sezzle.php:823
 msgid "Resulting logs can be found at WooCommerce > Status > Logs > sezzlepay"
 msgstr "Les journaux générés se trouvent sous WooCommerce > État > Journaux > sezzlepay"
 
-#: woocommerce-gateway-sezzle.php:2386
-msgid "Sezzle has been disabled because the stored API keys were rejected (unauthorized). Please enter valid Public and Private keys to re-enable Sezzle."
-msgstr "Sezzle a été désactivé parce que les clés API enregistrées ont été rejetées (non autorisées). Veuillez saisir des clés publique et privée valides pour réactiver Sezzle."
-
-#: includes/class-sezzle-checkout.php:840
-#: woocommerce-gateway-sezzle.php:1164
-msgid "Sorry, there was a problem preparing your payment."
-msgstr "Désolé, un problème est survenu lors de la préparation de votre paiement."
-
-#: woocommerce-gateway-sezzle.php:1331
-#: woocommerce-gateway-sezzle.php:1366
-msgid "Order reference ID not matching"
-msgstr "L’identifiant de référence de la commande ne correspond pas"
-
-#: woocommerce-gateway-sezzle.php:1486
-#: woocommerce-gateway-sezzle.php:1509
-#: woocommerce-gateway-sezzle.php:3421
-msgid "Unable to create order."
-msgstr "Impossible de créer la commande."
-
-#: woocommerce-gateway-sezzle.php:1632
-#: woocommerce-gateway-sezzle.php:1691
-#: woocommerce-gateway-sezzle.php:1727
-msgid "Payment approved by Sezzle successfully."
-msgstr "Paiement approuvé par Sezzle avec succès."
-
-#: woocommerce-gateway-sezzle.php:1740
-msgid "The payment failed because of an unknown error. Please contact Sezzle from the Sezzle merchant dashboard."
-msgstr "Le paiement a échoué en raison d’une erreur inconnue. Veuillez contacter Sezzle depuis le tableau de bord marchand Sezzle."
-
-#: woocommerce-gateway-sezzle.php:1768
-msgid "An unknown error occurred during payment processing. Please contact Sezzle support."
-msgstr "Une erreur inconnue est survenue lors du traitement du paiement. Veuillez contacter l’assistance Sezzle."
-
-#. translators: %s: refund amount, formatted with currency
-#: woocommerce-gateway-sezzle.php:1999
-#, php-format
-msgid "Refund of %s successfully sent to Sezzle."
-msgstr "Remboursement de %s envoyé à Sezzle avec succès."
-
-#: woocommerce-gateway-sezzle.php:2026
-msgid "There was an error submitting the refund to Sezzle."
-msgstr "Une erreur est survenue lors de l’envoi du remboursement à Sezzle."
-
-#: woocommerce-gateway-sezzle.php:2139
-msgid "Settings"
-msgstr "Paramètres"
-
-#: woocommerce-gateway-sezzle.php:3398
-msgid "Cart is empty or not available."
-msgstr "Le panier est vide ou indisponible."
-
-#: woocommerce-gateway-sezzle.php:3477
-msgid "Order created programmatically from cart through express checkout."
-msgstr "Commande créée automatiquement à partir du panier via le paiement express."
-
-#: woocommerce-gateway-sezzle.php:3733
-#: woocommerce-gateway-sezzle.php:3823
-msgid "Invalid request"
-msgstr "Requête invalide"
-
-#: woocommerce-gateway-sezzle.php:3738
-msgid "Invalid product."
-msgstr "Produit invalide."
-
-#: woocommerce-gateway-sezzle.php:3768
-msgid "This product cannot be added to the cart. Please ensure all options are selected."
-msgstr "Ce produit ne peut pas être ajouté au panier. Veuillez vous assurer que toutes les options sont sélectionnées."
-
-#: woocommerce-gateway-sezzle.php:3790
-msgid "Unable to add product to cart. Please ensure all options are selected."
-msgstr "Impossible d’ajouter le produit au panier. Veuillez vous assurer que toutes les options sont sélectionnées."
-
-#: woocommerce-gateway-sezzle.php:3982
-msgid "Please enter a valid postcode / ZIP."
-msgstr "Veuillez saisir un code postal valide."
-
-#: woocommerce-gateway-sezzle.php:4263
-msgid "Sezzle order UUID is required."
-msgstr "L’UUID de la commande Sezzle est requis."
-
-#: woocommerce-gateway-sezzle.php:4275
-msgid "Unable to retrieve order details from Sezzle."
-msgstr "Impossible de récupérer les détails de la commande depuis Sezzle."
-
-#: woocommerce-gateway-sezzle.php:4312
-msgid "error creating or retrieving WooCommerce order."
-msgstr "erreur lors de la création ou de la récupération de la commande WooCommerce."
-
-#: woocommerce-gateway-sezzle.php:4327
-msgid "Order is not in pending payment status."
-msgstr "La commande n’est pas au statut « paiement en attente »."
-
-#: woocommerce-gateway-sezzle.php:4321
-#: woocommerce-gateway-sezzle.php:4403
-msgid "Order details updated successfully."
-msgstr "Détails de la commande mis à jour avec succès."
-
-#: woocommerce-gateway-sezzle.php:4469
-#: woocommerce-gateway-sezzle.php:4529
-msgid "Invalid nonce"
-msgstr "Nonce invalide"
-
-#: woocommerce-gateway-sezzle.php:4474
-msgid "Missing required parameters"
-msgstr "Paramètres requis manquants"
-
-#: woocommerce-gateway-sezzle.php:4496
-#: woocommerce-gateway-sezzle.php:4588
-msgid "An error occurred. Please try again."
-msgstr "Une erreur est survenue. Veuillez réessayer."
-
-#: woocommerce-gateway-sezzle.php:4580
-msgid "Verification failed"
-msgstr "Échec de la vérification"
-
-#: woocommerce-gateway-sezzle.php:414
-msgid "IFrame mode may cause Content Security Policy (CSP) issues. Please reach out to Sezzle support before using it to make sure your domain is allowlisted."
-msgstr "Le mode IFrame peut entraîner des problèmes de politique de sécurité du contenu (CSP). Veuillez contacter l’assistance Sezzle avant de l’utiliser afin de vous assurer que votre domaine figure sur la liste d’autorisation."
-
-#: woocommerce-gateway-sezzle.php:870
+#: woocommerce-gateway-sezzle.php:902
 msgid "Unable to validate keys."
 msgstr "Impossible de valider les clés."
 
-#: woocommerce-gateway-sezzle.php:509
-msgid "Sandbox"
-msgstr "Bac à sable"
+#: woocommerce-gateway-sezzle.php:1398 woocommerce-gateway-sezzle.php:1456
+msgid "Order reference ID not matching"
+msgstr "L’identifiant de référence de la commande ne correspond pas"
 
-#: woocommerce-gateway-sezzle.php:510
-msgid "Live"
-msgstr "Production"
-
-#: woocommerce-gateway-sezzle.php:603
-msgid "Pop Up"
-msgstr "Fenêtre surgissante"
-
-#: woocommerce-gateway-sezzle.php:604
-msgid "IFrame"
-msgstr "Cadre intégré (iFrame)"
-
-#: woocommerce-gateway-sezzle.php:1341
+#: woocommerce-gateway-sezzle.php:1413 woocommerce-gateway-sezzle.php:1922
 msgid "Unable to find the order for this payment."
 msgstr "Impossible de trouver la commande associée à ce paiement."
 
-#: woocommerce-gateway-sezzle.php:1352
+#: woocommerce-gateway-sezzle.php:1442
 msgid "Unable to find the Sezzle checkout for this order."
 msgstr "Impossible de trouver le paiement Sezzle associé à cette commande."
 
-#: woocommerce-gateway-sezzle.php:1373
-#: woocommerce-gateway-sezzle.php:1756
-#: woocommerce-gateway-sezzle.php:4284
+#: woocommerce-gateway-sezzle.php:1463 woocommerce-gateway-sezzle.php:2358
+#: woocommerce-gateway-sezzle.php:5014
 msgid "Sezzle was unable to complete your payment. Please try again or choose another payment method."
 msgstr "Sezzle n’a pas pu finaliser votre paiement. Veuillez réessayer ou choisir un autre mode de paiement."
 
-#: woocommerce-gateway-sezzle.php:1441
+#: woocommerce-gateway-sezzle.php:1624
+msgid "Your order was already placed in another window, so this Sezzle payment was not completed."
+msgstr "Votre commande a déjà été passée dans une autre fenêtre. Ce paiement Sezzle n’a donc pas été finalisé."
+
+#. translators: %s: Sezzle order UUID.
+#: woocommerce-gateway-sezzle.php:1774
+#, php-format
+msgid "The shopper also approved Sezzle order %s for this order. It was not captured because this order's payment is not confirmed; check both in the Sezzle Merchant Dashboard."
+msgstr "Le client a également approuvé la commande Sezzle %s pour cette commande. Elle n’a pas été encaissée, car le paiement de cette commande n’est pas confirmé. Vérifiez les deux dans le tableau de bord marchand Sezzle."
+
+#: woocommerce-gateway-sezzle.php:1777
+msgid "Unable to complete this payment because the order's payment is still being confirmed. Please contact the store."
+msgstr "Impossible de finaliser ce paiement, car le paiement de la commande est encore en cours de confirmation. Veuillez contacter la boutique."
+
+#. translators: %s: payment method ID the order was changed to.
+#: woocommerce-gateway-sezzle.php:1930
+#, php-format
+msgid "Payment method restored to Sezzle on the return from Sezzle. It had been changed to \"%s\" by checkout activity after the shopper was sent to Sezzle."
+msgstr "Mode de paiement rétabli sur Sezzle au retour de Sezzle. Il avait été remplacé par « %s » par une activité sur la page de paiement après la redirection du client vers Sezzle."
+
+#: woocommerce-gateway-sezzle.php:1931
+msgid "none"
+msgstr "aucun"
+
+#: woocommerce-gateway-sezzle.php:1986
 msgid "Your payment is still being processed. Please wait a moment and refresh the page."
 msgstr "Votre paiement est toujours en cours de traitement. Veuillez patienter un instant, puis actualiser la page."
 
-#: woocommerce-gateway-sezzle.php:1824
+#: woocommerce-gateway-sezzle.php:2031 woocommerce-gateway-sezzle.php:2076
+#: woocommerce-gateway-sezzle.php:4146
+msgid "Unable to create order."
+msgstr "Impossible de créer la commande."
+
+#: woocommerce-gateway-sezzle.php:2045
+msgid "Unable to create order: your cart is empty."
+msgstr "Impossible de créer la commande : votre panier est vide."
+
+#: woocommerce-gateway-sezzle.php:2199 woocommerce-gateway-sezzle.php:2285
+#: woocommerce-gateway-sezzle.php:2322
+msgid "Payment approved by Sezzle successfully."
+msgstr "Paiement approuvé par Sezzle avec succès."
+
+#: woocommerce-gateway-sezzle.php:2343 woocommerce-gateway-sezzle.php:2411
 msgid "Sezzle capture result could not be confirmed. Check this order in the Sezzle Merchant Dashboard."
 msgstr "Le résultat de l’encaissement Sezzle n’a pas pu être confirmé. Vérifiez cette commande dans le tableau de bord marchand Sezzle."
 
-#: woocommerce-gateway-sezzle.php:1964
+#: woocommerce-gateway-sezzle.php:2350
+msgid "The payment failed because of an unknown error. Please contact Sezzle from the Sezzle merchant dashboard."
+msgstr "Le paiement a échoué en raison d’une erreur inconnue. Veuillez contacter Sezzle depuis le tableau de bord marchand Sezzle."
+
+#: woocommerce-gateway-sezzle.php:2370
+msgid "An unknown error occurred during payment processing. Please contact Sezzle support."
+msgstr "Une erreur inconnue est survenue lors du traitement du paiement. Veuillez contacter l’assistance Sezzle."
+
+#: woocommerce-gateway-sezzle.php:2678
 msgid "This order has no Sezzle order ID stored against it, so there is nothing to refund."
 msgstr "Aucun identifiant de commande Sezzle n’est enregistré pour cette commande. Il n’y a donc rien à rembourser."
 
 #. translators: %s: error message returned by the Sezzle API.
-#: woocommerce-gateway-sezzle.php:1988
+#: woocommerce-gateway-sezzle.php:2702
 #, php-format
 msgid "Sezzle rejected the refund: %s"
 msgstr "Sezzle a refusé le remboursement : %s"
 
-#: woocommerce-gateway-sezzle.php:2009
+#. translators: %s: refund amount, formatted with currency
+#: woocommerce-gateway-sezzle.php:2713
+#, php-format
+msgid "Refund of %s successfully sent to Sezzle."
+msgstr "Remboursement de %s envoyé à Sezzle avec succès."
+
+#: woocommerce-gateway-sezzle.php:2723
 msgid "Sezzle accepted the request but did not return a refund ID."
 msgstr "Sezzle a accepté la demande, mais n’a pas renvoyé d’identifiant de remboursement."
 
-#: woocommerce-gateway-sezzle.php:2388
+#: woocommerce-gateway-sezzle.php:2740
+msgid "There was an error submitting the refund to Sezzle."
+msgstr "Une erreur est survenue lors de l’envoi du remboursement à Sezzle."
+
+#: woocommerce-gateway-sezzle.php:2853
+msgid "Settings"
+msgstr "Paramètres"
+
+#: woocommerce-gateway-sezzle.php:3100
+msgid "Sezzle has been disabled because the stored API keys were rejected (unauthorized). Please enter valid Public and Private keys to re-enable Sezzle."
+msgstr "Sezzle a été désactivé parce que les clés API enregistrées ont été rejetées (non autorisées). Veuillez saisir des clés publique et privée valides pour réactiver Sezzle."
+
+#: woocommerce-gateway-sezzle.php:3102
 msgid "Update API keys"
 msgstr "Mettre à jour les clés API"
 
-#: woocommerce-gateway-sezzle.php:2390
+#: woocommerce-gateway-sezzle.php:3104
 msgid "Dismiss"
 msgstr "Ignorer"
+
+#: woocommerce-gateway-sezzle.php:4123
+msgid "Cart is empty or not available."
+msgstr "Le panier est vide ou indisponible."
+
+#: woocommerce-gateway-sezzle.php:4202
+msgid "Order created programmatically from cart through express checkout."
+msgstr "Commande créée automatiquement à partir du panier via le paiement express."
+
+#: woocommerce-gateway-sezzle.php:4462 woocommerce-gateway-sezzle.php:4552
+msgid "Invalid request"
+msgstr "Requête invalide"
+
+#: woocommerce-gateway-sezzle.php:4467
+msgid "Invalid product."
+msgstr "Produit invalide."
+
+#: woocommerce-gateway-sezzle.php:4497
+msgid "This product cannot be added to the cart. Please ensure all options are selected."
+msgstr "Ce produit ne peut pas être ajouté au panier. Veuillez vous assurer que toutes les options sont sélectionnées."
+
+#: woocommerce-gateway-sezzle.php:4519
+msgid "Unable to add product to cart. Please ensure all options are selected."
+msgstr "Impossible d’ajouter le produit au panier. Veuillez vous assurer que toutes les options sont sélectionnées."
+
+#: woocommerce-gateway-sezzle.php:4711
+msgid "Please enter a valid postcode / ZIP."
+msgstr "Veuillez saisir un code postal valide."
+
+#: woocommerce-gateway-sezzle.php:4993
+msgid "Sezzle order UUID is required."
+msgstr "L’UUID de la commande Sezzle est requis."
+
+#: woocommerce-gateway-sezzle.php:5005
+msgid "Unable to retrieve order details from Sezzle."
+msgstr "Impossible de récupérer les détails de la commande depuis Sezzle."
+
+#: woocommerce-gateway-sezzle.php:5043
+msgid "error creating or retrieving WooCommerce order."
+msgstr "erreur lors de la création ou de la récupération de la commande WooCommerce."
+
+#: woocommerce-gateway-sezzle.php:5052 woocommerce-gateway-sezzle.php:5134
+msgid "Order details updated successfully."
+msgstr "Détails de la commande mis à jour avec succès."
+
+#: woocommerce-gateway-sezzle.php:5058
+msgid "Order is not in pending payment status."
+msgstr "La commande n’est pas au statut « paiement en attente »."
+
+#: woocommerce-gateway-sezzle.php:5174 woocommerce-gateway-sezzle.php:5234
+msgid "Invalid nonce"
+msgstr "Nonce invalide"
+
+#: woocommerce-gateway-sezzle.php:5179
+msgid "Missing required parameters"
+msgstr "Paramètres requis manquants"
+
+#: woocommerce-gateway-sezzle.php:5201 woocommerce-gateway-sezzle.php:5293
+msgid "An error occurred. Please try again."
+msgstr "Une erreur est survenue. Veuillez réessayer."
+
+#: woocommerce-gateway-sezzle.php:5285
+msgid "Verification failed"
+msgstr "Échec de la vérification"
 
 #: build/js/frontend/express-checkout.js:1
 msgid "Processing..."

@@ -2,7 +2,7 @@
 /*
 Plugin Name: Sezzle WooCommerce Payment
 Description: Buy Now Pay Later with Sezzle
-Version: 7.0.1
+Version: 7.0.2
 Author: Sezzle
 Author URI: https://www.sezzle.com/
 Requires at least: 5.6.0
@@ -10,7 +10,7 @@ Tested up to: 7.1.4
 Requires PHP: 8.0
 Copyright: © 2026 Sezzle
 WC requires at least: 5.0
-WC tested up to: 11.2.2
+WC tested up to: 11.3.0
 Text Domain: woo_sezzlepay
 Domain Path: /i18n/languages/
 
@@ -77,6 +77,23 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			// Set once a capture request has been sent in this request, so error
 			// handling never deletes an order whose payment may have gone through.
 			private $capture_attempted = false;
+			// Set once a capture request has been sent in this request, and never reset,
+			// unlike $capture_attempted, which is cleared when Sezzle explicitly refuses the
+			// capture. A checkout Sezzle refused to capture is left for the merchant, never
+			// released.
+			private $capture_requested = false;
+			// Set once this request released the shopper's Sezzle authorization, so the
+			// CAPTURE_FAILED report says the payment won't be left uncaptured.
+			private $authorization_released = false;
+			// Session data create_sezzle_order() consumed while creating an order on the
+			// return from Sezzle, put back if that order is deleted without a capture so
+			// another approved session the shopper has open can still complete.
+			private $consumed_checkout_session = null;
+			// The order create_sezzle_order() created, set as soon as it exists, so the
+			// callback's error handling can clean it up when something after that throws
+			// (a woocommerce_checkout_order_processed hook) before create_sezzle_order()
+			// returns it.
+			private $created_return_order = null;
 				
 			const TRANSACTION_MODE_LIVE    = 'live';
 			const TRANSACTION_MODE_SANDBOX = 'sandbox';
@@ -92,6 +109,23 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			// across concurrent requests, and how long (seconds) a second request waits.
 			const COMPLETION_LOCK_PREFIX = 'sezzle_cl_';
 			const COMPLETION_LOCK_WAIT = 15;
+			// Transient prefix mapping a post-checkout session's reference ID to its Sezzle
+			// order UUID, and how long it is kept: the return from Sezzle can't rely on the
+			// WooCommerce session for it (see remember_checkout_session()). Left to expire:
+			// reference IDs are unique, and a retried return may still need it.
+			const CHECKOUT_SESSION_TRANSIENT_PREFIX = 'sezzle_checkout_';
+			const CHECKOUT_SESSION_TRANSIENT_TTL = DAY_IN_SECONDS;
+			// Transient prefix recording when a shopper last placed an order (any payment
+			// method), so a Sezzle checkout started before it isn't completed as a second
+			// order (see record_shopper_order_placed()). Same lifetime as the above.
+			const SHOPPER_ORDER_PLACED_TRANSIENT_PREFIX = 'sezzle_placed_';
+			// Order meta mapping each Sezzle session created for the order (reference ID =>
+			// Sezzle order UUID), so the return can tell which one the shopper finished,
+			// and how many of the most recent sessions are kept.
+			const ORDER_SESSIONS_META = 'sezzle_sessions';
+			// Action Scheduler hook releasing a paid order's other Sezzle sessions.
+			const RELEASE_OTHER_SESSIONS_ACTION = 'sezzle_release_other_order_sessions';
+			const ORDER_SESSIONS_LIMIT = 20;
 			// Set when a 401 disabled Sezzle; drives the admin notice until resolved.
 			const API_ERROR_NOTICE_OPTION = 'sezzle_api_error_notice';
 			// WC session key holding the shopper's cart snapshot taken before a
@@ -1172,6 +1206,14 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 						$this->update_or_create_meta_data($order, 'sezzle_previous_order_uuids', array_values(array_unique(array_filter($previous_uuids))));
 					}
 
+					// The return URL names this session by its reference ID; map it to the
+					// Sezzle order so the return captures the session the shopper finished.
+					$sessions = (array) $order->get_meta(self::ORDER_SESSIONS_META, true);
+					unset($sessions[$checkout_data['order']['reference_id']]);
+					$sessions[$checkout_data['order']['reference_id']] = $session['order_uuid'];
+					$sessions = array_slice(array_filter($sessions), -self::ORDER_SESSIONS_LIMIT, null, true);
+					$this->update_or_create_meta_data($order, self::ORDER_SESSIONS_META, $sessions);
+
 					$this->update_or_create_meta_data($order, 'sezzle_redirect_url', $redirect_url);
 					$this->update_or_create_meta_data($order, 'sezzle_order_uuid', $session['order_uuid']);
 					$order->save();
@@ -1211,7 +1253,9 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 					// created; storing it here broke completing an older, still-open
 					// session when creating the new one failed.
 					$order_reference_id = $order_reference_id . '-' . $order->get_id();
-					$complete_url_arg = [ 'key' => $order->get_order_key() ];
+					// The reference ID tells the return which of the order's sessions the
+					// shopper finished (several can be open: tabs, a restarted checkout).
+					$complete_url_arg = [ 'key' => $order->get_order_key(), 'order_reference_id' => $order_reference_id ];
 					$total            = $order->get_total();
 					$order_items      = $order->get_items();
 					// Label the amounts with the currency they are in: the order's. The
@@ -1350,6 +1394,8 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				$order = null;
 				$sezzle_order_uuid = null;
 				$created_order = false;
+				// The Sezzle order once it is confirmed to be this return's approved checkout.
+				$verified_sezzle_order = null;
                 try {
                     $_REQUEST = stripslashes_deep($_REQUEST);
                     $order_key = isset($_REQUEST['key']) ? sanitize_text_field($_REQUEST['key']) : '';
@@ -1361,20 +1407,44 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 
                     // The shopper's browser can hit this URL twice (refresh, back button,
                     // double redirect). Serialize so a second hit sees the first one's result.
-                    $this->acquire_completion_lock($order_key ?: $order_reference_id);
+                    // A post-checkout return locks the whole shopper, not just its reference
+                    // ID: see post_checkout_lock_name().
+                    $this->acquire_completion_lock($order_key ?: $this->post_checkout_lock_name($order_reference_id));
 
+                    $restore_payment_method = false;
+                    // Whether the return URL named the order session the shopper finished.
+                    $session_named = false;
                     if ($order_key) {
                         $order = $this->get_order(wc_get_order_id_by_order_key($order_key));
                         if (!$order || $order->get_payment_method() !== $this->id) {
                             $sezzle_order_uuid = $this->log_unmatched_return($order) ?: null;
-                            throw new Exception(__('Unable to find the order for this payment.', 'woo_sezzlepay'));
+                            if (!$this->can_restore_payment_method($order)) {
+                                throw new Exception(__('Unable to find the order for this payment.', 'woo_sezzlepay'));
+                            }
+                            // Restored only once Sezzle confirms the shopper approved this checkout, below.
+                            $restore_payment_method = true;
                         }
-                        $order_reference_id = $order->get_transaction_id();
-                        $sezzle_order_uuid = $order->get_meta('sezzle_order_uuid', true);
+                        $named_uuid = $order_reference_id !== '' ? $this->get_order_session_uuid($order, $order_reference_id) : '';
+                        if ($named_uuid !== '') {
+                            $session_named = true;
+                            $sezzle_order_uuid = $named_uuid;
+                            if ($named_uuid !== $order->get_meta('sezzle_order_uuid', true) && !$order->needs_payment()) {
+                                // Another session already completed (or may have completed)
+                                // this order: never capture a second one on it.
+                                $this->handle_superseded_session($order, $named_uuid, $order_reference_id);
+                                return;
+                            }
+                        } else {
+                            // Sessions created before the return URL named them, or an unknown
+                            // reference ID: use the order's latest session (falling back to an
+                            // earlier approved one below).
+                            $order_reference_id = $order->get_transaction_id();
+                            $sezzle_order_uuid = $order->get_meta('sezzle_order_uuid', true);
+                        }
                     } else {
                         $order = $this->get_order_by_txn_id($order_reference_id);
                         $sezzle_order_uuid = $order ? $order->get_meta('sezzle_order_uuid', true) : '';
-                        $sezzle_order_uuid = $sezzle_order_uuid ?: WC()->session->get('sezzle_order_uuid');
+                        $sezzle_order_uuid = $sezzle_order_uuid ?: $this->get_checkout_session_uuid($order_reference_id);
                     }
 
                     if (!$sezzle_order_uuid) {
@@ -1382,7 +1452,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                     }
 					$sezzle_order = $this->get_sezzle_order_details($sezzle_order_uuid);
 
-					if ($order && !$order->is_paid() && !$this->is_sezzle_order_authorized($sezzle_order)) {
+					if (!$session_named && $order && !$order->is_paid() && !$this->is_sezzle_order_authorized($sezzle_order)) {
 						$previous_session = $this->find_authorized_previous_session($order);
 						if ($previous_session) {
 							$sezzle_order = $previous_session;
@@ -1401,8 +1471,21 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 					if ((!$order || !$order->is_paid()) && !$this->is_sezzle_order_authorized($sezzle_order)) {
 						throw new Exception(__('Sezzle was unable to complete your payment. Please try again or choose another payment method.', 'woo_sezzlepay'));
 					}
+					$verified_sezzle_order = $sezzle_order;
+
+					// The order is captured with the session the shopper finished: point its
+					// transaction ID at it (the capture and restore checks below compare it).
+					if ($session_named && $order->get_transaction_id() !== $order_reference_id) {
+						$order->set_transaction_id($order_reference_id);
+						$order->save();
+					}
+
+					if ($restore_payment_method) {
+						$this->restore_payment_method($order, $sezzle_order);
+					}
 
 					if (!$order) {
+						$this->assert_no_order_placed_since($order_reference_id);
 						$order = $this->create_sezzle_order($order_reference_id, $sezzle_order_uuid);
 						$created_order = true;
 					} elseif ($order->get_meta('sezzle_order_uuid', true) !== $sezzle_order_uuid) {
@@ -1412,11 +1495,415 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 
                     $this->process_order_payment($order, $order_reference_id, $sezzle_order, $order_key);
                 } catch (Exception $e) {
-					// With "create order post checkout completion" the order should only
-					// exist once Sezzle has been paid, so don't leave an unpaid one behind.
+					// create_sezzle_order() threw after creating the order (a hook it fires):
+					// handle that order as the one created on this return, so it is deleted
+					// rather than left pending against a released authorization.
+					if (!$order && $this->created_return_order) {
+						$order = $this->created_return_order;
+						$created_order = true;
+					}
+					// With "create order post checkout completion" the order is created on
+					// this return, so a failure here before any capture request (a coupon's
+					// usage limit, a shipping or checkout validation hooked into
+					// create_order(), totals that don't match the authorization) leaves no
+					// WooCommerce order to capture later. Release the shopper's
+					// authorization instead of leaving it uncaptured until it expires, and
+					// so a retry doesn't add a second hold. An order created before the
+					// redirect stays open for a retry, so its authorization is kept until
+					// another of its sessions pays it (release_other_order_sessions()).
+					if ($verified_sezzle_order && !$order_key && (!$order || $created_order)) {
+						$this->release_unused_authorization($verified_sezzle_order, $order_reference_id, $order);
+					}
+					// No order is kept when no capture was attempted (none was created, or the
+					// one created is deleted below): put back the checkout data creating it
+					// consumed, so another session the shopper approved (another tab) can
+					// still create the order.
+					if (!$this->capture_attempted && (!$order || ($created_order && !$order->is_paid()))) {
+						$this->restore_consumed_checkout_session();
+					}
+					// Don't leave an unpaid order created on this return behind.
                     $this->handle_payment_exception($e, $sezzle_order_uuid, $order, $created_order);
                 }
             }
+
+			/**
+			 * Remember which Sezzle order a post-checkout session (no WooCommerce order yet)
+			 * created, keyed by its reference ID.
+			 *
+			 * The return from Sezzle used to read the UUID from the WooCommerce session only.
+			 * The session is saved whole at the end of each request, so a concurrent request
+			 * that loaded it earlier (e.g. the checkout's update_order_review) can save it
+			 * back without the UUID, or with the previous checkout's. The return then failed
+			 * with "Unable to find the Sezzle checkout for this order." or "Order reference
+			 * ID not matching", leaving the shopper's authorization uncaptured.
+			 *
+			 * @param string $reference_id      Reference ID sent in the session's complete URL.
+			 * @param string $sezzle_order_uuid
+			 * @return void
+			 */
+			public static function remember_checkout_session($reference_id, $sezzle_order_uuid) {
+				if ((string) $reference_id === '' || !$sezzle_order_uuid) {
+					return;
+				}
+				set_transient(self::checkout_session_transient_key($reference_id), [
+					'uuid'       => (string) $sezzle_order_uuid,
+					'created_at' => microtime(true),
+					'shoppers'   => self::current_shopper_keys(),
+				], self::CHECKOUT_SESSION_TRANSIENT_TTL);
+			}
+
+			/**
+			 * Keys identifying the shopper of the current request: the WooCommerce session's
+			 * customer ID and, when logged in, the user ID. Both are kept because creating an
+			 * account at checkout logs the shopper in, which changes the session's customer ID
+			 * from the guest one to the user ID on a later request.
+			 *
+			 * @return string[]
+			 */
+			private static function current_shopper_keys() {
+				$keys = [];
+				if (function_exists('WC') && WC()->session && WC()->session->get_customer_id()) {
+					$keys[] = 's:' . WC()->session->get_customer_id();
+				}
+				if (get_current_user_id()) {
+					$keys[] = 'u:' . get_current_user_id();
+				}
+				return $keys;
+			}
+
+			/**
+			 * @param string $shopper_key One of current_shopper_keys().
+			 * @return string Transient name.
+			 */
+			private static function shopper_order_placed_transient_key($shopper_key) {
+				return self::SHOPPER_ORDER_PLACED_TRANSIENT_PREFIX . md5((string) $shopper_key);
+			}
+
+			/**
+			 * Record that the shopper of the current request placed an order, with any payment
+			 * method, so that only the first checkout they complete is kept when they have
+			 * several open (tabs, windows). Hooked to woocommerce_order_status_changed.
+			 *
+			 * Only an order leaving pending, failed or checkout-draft for a placed status
+			 * counts, and only in the shopper's own request (one with a session cookie, not
+			 * the admin, cron or a payment webhook), so an order confirmed later doesn't
+			 * block a checkout the shopper started after placing it. Stored outside the
+			 * session, which a concurrent request can overwrite.
+			 *
+			 * @param int      $order_id
+			 * @param string   $from
+			 * @param string   $to
+			 * @return void
+			 */
+			public static function record_shopper_order_placed($order_id, $from, $to) {
+				switch (true) {
+					case !in_array($from, ['pending', 'failed', 'checkout-draft'], true):
+					case !in_array($to, ['processing', 'completed', 'on-hold'], true):
+					case is_admin() && !wp_doing_ajax():
+					case wp_doing_cron():
+					case !function_exists('WC') || !WC()->session:
+					case method_exists(WC()->session, 'has_session') && !WC()->session->has_session():
+						return;
+				}
+				$placed_at = microtime(true);
+				foreach (self::current_shopper_keys() as $key) {
+					set_transient(self::shopper_order_placed_transient_key($key), $placed_at, self::CHECKOUT_SESSION_TRANSIENT_TTL);
+				}
+			}
+
+			/**
+			 * Refuse to create an order for a post-checkout Sezzle session when the same
+			 * shopper placed an order after starting it (in another tab or window, with
+			 * Sezzle or another payment method): the first checkout completed is the one
+			 * kept, and this authorization is released by the caller.
+			 *
+			 * A session with no stored start time (created before this check existed, or a
+			 * lost transient) isn't refused here; the empty cart and amount checks still apply.
+			 *
+			 * @param string $reference_id
+			 * @return void
+			 * @throws Exception When an order was placed after this Sezzle session started.
+			 */
+			private function assert_no_order_placed_since($reference_id) {
+				$checkout = get_transient(self::checkout_session_transient_key($reference_id));
+				if (!is_array($checkout) || empty($checkout['created_at'])) {
+					return;
+				}
+				$shoppers = array_unique(array_merge((array) ($checkout['shoppers'] ?? []), self::current_shopper_keys()));
+				foreach ($shoppers as $key) {
+					$placed_at = (float) get_transient(self::shopper_order_placed_transient_key($key));
+					if ($placed_at > (float) $checkout['created_at']) {
+						$this->log(sprintf(
+							'Return from Sezzle (reference ID: %s): the shopper placed another order after this Sezzle checkout started; not creating a second order.',
+							$reference_id
+						));
+						throw new Exception(__('Your order was already placed in another window, so this Sezzle payment was not completed.', 'woo_sezzlepay'));
+					}
+				}
+			}
+
+			/**
+			 * @param string $reference_id
+			 * @return string Transient name (hashed: reference IDs come from the URL).
+			 */
+			private static function checkout_session_transient_key($reference_id) {
+				return self::CHECKOUT_SESSION_TRANSIENT_PREFIX . md5((string) $reference_id);
+			}
+
+			/**
+			 * The Sezzle order UUID of a post-checkout session, from the reference ID in the
+			 * return URL, falling back to the WooCommerce session (sessions created before
+			 * the reference ID was remembered, or a lost transient). Whatever is found must
+			 * still pass the caller's authorization and reference ID checks.
+			 *
+			 * @param string $reference_id
+			 * @return string
+			 */
+			private function get_checkout_session_uuid($reference_id) {
+				$checkout     = get_transient(self::checkout_session_transient_key($reference_id));
+				$stored_uuid  = is_array($checkout) ? (string) ($checkout['uuid'] ?? '') : '';
+				$session_uuid = WC()->session ? (string) WC()->session->get('sezzle_order_uuid') : '';
+
+				if ($stored_uuid !== '') {
+					if ($session_uuid !== $stored_uuid) {
+						$this->log(sprintf(
+							'Return from Sezzle (reference ID: %s): the session holds Sezzle order UUID %s; using %s, stored for this reference ID.',
+							$reference_id,
+							$session_uuid ?: 'none',
+							$stored_uuid
+						));
+					}
+					return $stored_uuid;
+				}
+
+				return $session_uuid;
+			}
+
+			/**
+			 * Release a Sezzle authorization that won't be captured because the return from
+			 * Sezzle failed before a WooCommerce order could be paid with it.
+			 *
+			 * Only for an authorization confirmed to belong to this return (approved, its
+			 * reference ID matching), that nothing has captured and that no capture was
+			 * requested for in this request: the order couldn't be created or completed (the
+			 * store rejected it, a duplicate, totals that don't match, missing checkout
+			 * data). One Sezzle refused to capture, or whose capture outcome is unknown (the
+			 * order is put on hold), is left for the merchant. Best-effort: never throws.
+			 *
+			 * @param object        $sezzle_order
+			 * @param string        $order_reference_id
+			 * @param WC_Order|null $order The order created on this return, if any.
+			 * @return void
+			 */
+			private function release_unused_authorization($sezzle_order, $order_reference_id, $order) {
+				switch (true) {
+					// Release only an authorization no capture was requested for: one Sezzle
+					// refused, or whose outcome is unknown, is left for the merchant.
+					case $this->capture_requested:
+					case $order instanceof WC_Order && $order->is_paid():
+					case empty($sezzle_order->reference_id) || $sezzle_order->reference_id !== $order_reference_id:
+						return;
+				}
+				$this->release_authorization($sezzle_order, 'the WooCommerce order could not be completed');
+			}
+
+			/**
+			 * Release a Sezzle authorization in full, if it is approved and nothing has
+			 * captured it. Best-effort: never throws.
+			 *
+			 * @param object $sezzle_order
+			 * @param string $reason For the log.
+			 * @return bool Whether Sezzle accepted the release.
+			 */
+			private function release_authorization($sezzle_order, $reason) {
+				$authorization = $sezzle_order->authorization ?? null;
+				$amount        = $authorization->authorization_amount ?? null;
+				switch (true) {
+					case empty($sezzle_order->uuid):
+					case !$this->is_sezzle_order_authorized($sezzle_order):
+					case !empty($authorization->captures):
+					case empty($amount->amount_in_cents) || empty($amount->currency):
+						return false;
+				}
+
+				try {
+					$service_v2 = new Service_V2($this->get_option('transaction-mode'), $this->get_keys());
+					$service_v2->release($sezzle_order->uuid, [
+						'amount_in_cents' => (int) $amount->amount_in_cents,
+						'currency'        => (string) $amount->currency,
+					]);
+					$this->authorization_released = true;
+					$this->log(sprintf(
+						'Released Sezzle authorization %s (reference ID: %s, %d %s): %s.',
+						$sezzle_order->uuid,
+						$sezzle_order->reference_id ?? '',
+						(int) $amount->amount_in_cents,
+						$amount->currency,
+						$reason
+					));
+					return true;
+				} catch (Exception $e) {
+					$this->log(sprintf('Unable to release Sezzle authorization %s: %s', $sezzle_order->uuid, $e->getMessage()));
+					return false;
+				}
+			}
+
+			/**
+			 * The Sezzle order UUID of the order's session with this reference ID, or '' if
+			 * the order created no such session.
+			 *
+			 * @param WC_Order $order
+			 * @param string   $reference_id
+			 * @return string
+			 */
+			private function get_order_session_uuid($order, $reference_id) {
+				$sessions = (array) $order->get_meta(self::ORDER_SESSIONS_META, true);
+				return isset($sessions[$reference_id]) ? (string) $sessions[$reference_id] : '';
+			}
+
+			/**
+			 * The shopper finished one of the order's Sezzle sessions, but the order no
+			 * longer needs payment with it: another session paid it, or its capture result
+			 * is unconfirmed (on hold). Never capture a second session on the order.
+			 *
+			 * A paid order's extra authorization is released and the shopper is sent to the
+			 * receipt. Otherwise (on hold, cancelled, ...) the session is left for the
+			 * merchant, who may still need it if the first capture didn't go through.
+			 *
+			 * @param WC_Order $order
+			 * @param string   $sezzle_order_uuid The session the shopper finished.
+			 * @param string   $reference_id      Its reference ID.
+			 * @return void Redirects (returns when doing ajax; the caller must stop) or throws.
+			 * @throws Exception When the order isn't paid.
+			 */
+			private function handle_superseded_session($order, $sezzle_order_uuid, $reference_id) {
+				if (!$order->is_paid()) {
+					$this->log(sprintf(
+						'Return from Sezzle for order #%d (status: %s) with Sezzle order %s, but the order was sent to Sezzle order %s; not capturing a second one.',
+						$order->get_id(),
+						$order->get_status(),
+						$sezzle_order_uuid,
+						$order->get_meta('sezzle_order_uuid', true) ?: 'none'
+					));
+					$order->add_order_note(sprintf(
+						/* translators: %s: Sezzle order UUID. */
+						__('The shopper also approved Sezzle order %s for this order. It was not captured because this order\'s payment is not confirmed; check both in the Sezzle Merchant Dashboard.', 'woo_sezzlepay'),
+						$sezzle_order_uuid
+					));
+					throw new Exception(__('Unable to complete this payment because the order\'s payment is still being confirmed. Please contact the store.', 'woo_sezzlepay'));
+				}
+
+				try {
+					$sezzle_order = $this->get_sezzle_order_details($sezzle_order_uuid);
+					if (is_object($sezzle_order) && ($sezzle_order->reference_id ?? '') === $reference_id) {
+						$this->release_authorization($sezzle_order, sprintf('order #%d was already paid with another Sezzle order', $order->get_id()));
+					}
+				} catch (Exception $e) {
+					$this->log(sprintf('Unable to retrieve Sezzle order %s: %s', $sezzle_order_uuid, $e->getMessage()));
+				}
+
+				if (wp_doing_ajax()) {
+					return;
+				}
+				wp_redirect($this->get_return_url($order));
+				exit;
+			}
+
+			/**
+			 * The order's other Sezzle sessions: every session it was sent to Sezzle with
+			 * except the one that paid it.
+			 *
+			 * @param WC_Order $order
+			 * @return string[]
+			 */
+			private function other_order_session_uuids($order) {
+				$captured_uuid = (string) $order->get_meta('sezzle_order_uuid', true);
+				$uuids = array_merge(
+					array_values((array) $order->get_meta(self::ORDER_SESSIONS_META, true)),
+					(array) $order->get_meta('sezzle_previous_order_uuids', true)
+				);
+				return array_values(array_diff(array_unique(array_filter(array_map('strval', $uuids))), [$captured_uuid]));
+			}
+
+			/**
+			 * Once a Sezzle session has paid the order, queue the release of its other
+			 * sessions (release_other_order_sessions()) instead of running it before the
+			 * shopper's receipt: each session costs a GET and possibly a release POST, and
+			 * the list of previous sessions has no limit.
+			 *
+			 * Queues nothing for an order with a single session. Runs inline only when
+			 * Action Scheduler isn't loaded, which WooCommerce bundles.
+			 *
+			 * @param WC_Order $order
+			 * @return void
+			 */
+			private function queue_release_other_order_sessions($order) {
+				if (!$this->other_order_session_uuids($order)) {
+					return;
+				}
+				if (!function_exists('as_enqueue_async_action')) {
+					$this->release_other_order_sessions($order);
+					return;
+				}
+				as_enqueue_async_action(self::RELEASE_OTHER_SESSIONS_ACTION, [$order->get_id()], 'sezzle', true);
+			}
+
+			/**
+			 * Action Scheduler worker for queue_release_other_order_sessions(). Reloads the
+			 * order and runs only for one still paid with Sezzle.
+			 *
+			 * @param int $order_id
+			 * @return void
+			 */
+			public function run_release_other_order_sessions($order_id) {
+				$order = wc_get_order($order_id);
+				if (!$order instanceof WC_Order || !$order->is_paid() || $order->get_payment_method() !== $this->id) {
+					return;
+				}
+				$this->release_other_order_sessions($order);
+			}
+
+			/**
+			 * Release the paid order's other sessions the shopper approved (another tab, or an
+			 * attempt whose capture was rejected), so only the captured one stays on the
+			 * shopper's account. Sessions not approved yet are released when the shopper
+			 * returns from them (handle_superseded_session()). Best-effort.
+			 *
+			 * @param WC_Order $order
+			 * @return void
+			 */
+			private function release_other_order_sessions($order) {
+				$captured_uuid = (string) $order->get_meta('sezzle_order_uuid', true);
+				foreach ($this->other_order_session_uuids($order) as $uuid) {
+					try {
+						$sezzle_order = $this->get_sezzle_order_details($uuid);
+					} catch (Exception $e) {
+						$this->log(sprintf('Unable to retrieve Sezzle order %s: %s', $uuid, $e->getMessage()));
+						continue;
+					}
+					if (is_object($sezzle_order)) {
+						$this->release_authorization($sezzle_order, sprintf('order #%d was paid with Sezzle order %s', $order->get_id(), $captured_uuid));
+					}
+				}
+			}
+
+			/**
+			 * Put back the session data create_sezzle_order() consumed (see
+			 * $consumed_checkout_session).
+			 *
+			 * @return void
+			 */
+			private function restore_consumed_checkout_session() {
+				if (!is_array($this->consumed_checkout_session) || !WC()->session) {
+					return;
+				}
+				foreach ($this->consumed_checkout_session as $key => $value) {
+					if (!empty($value) && empty(WC()->session->get($key))) {
+						WC()->session->set($key, $value);
+					}
+				}
+				$this->consumed_checkout_session = null;
+			}
 
 			/**
 			 * Log why a return from Sezzle carrying an order key can't be matched to a Sezzle
@@ -1459,6 +1946,54 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 				}
 
 				return $sezzle_order_uuid;
+			}
+
+			/**
+			 * Whether a returning order whose payment method is no longer Sezzle can still be
+			 * completed with Sezzle.
+			 *
+			 * On the Checkout Block, WooCommerce reuses an unpaid pending order whose cart is
+			 * unchanged, and loading or updating the checkout page while the shopper is on
+			 * Sezzle re-saves it with the default (or newly selected) payment method. The
+			 * order keeps its Sezzle order UUID and transaction ID, so it can be reclaimed as
+			 * long as nothing has paid it since. The caller must still confirm the Sezzle
+			 * order is authorized and its reference ID matches before restoring.
+			 *
+			 * @param WC_Order|false|null $order
+			 * @return bool
+			 */
+			private function can_restore_payment_method($order) {
+				return $order
+					&& $order->needs_payment()
+					&& $order->get_meta('sezzle_order_uuid', true)
+					&& $order->get_transaction_id() !== '';
+			}
+
+			/**
+			 * Set the order's payment method back to Sezzle once Sezzle has confirmed the
+			 * shopper approved the checkout this order is linked to.
+			 *
+			 * @param WC_Order $order
+			 * @param object $sezzle_order
+			 * @throws Exception When the Sezzle order can't be tied to this order.
+			 */
+			private function restore_payment_method($order, $sezzle_order) {
+				// The callback already rejects a mismatched reference ID; a missing one isn't
+				// enough to reclaim an order another payment method was selected for.
+				if (empty($sezzle_order->reference_id) || $sezzle_order->reference_id !== $order->get_transaction_id()) {
+					throw new Exception(__('Unable to find the order for this payment.', 'woo_sezzlepay'));
+				}
+
+				$previous_method = $order->get_payment_method();
+				$order->set_payment_method($this->id);
+				$order->set_payment_method_title($this->get_title());
+				$order->add_order_note(sprintf(
+					/* translators: %s: payment method ID the order was changed to. */
+					__('Payment method restored to Sezzle on the return from Sezzle. It had been changed to "%s" by checkout activity after the shopper was sent to Sezzle.', 'woo_sezzlepay'),
+					$previous_method ?: __('none', 'woo_sezzlepay')
+				));
+				$order->save();
+				$this->log(sprintf('Restored payment method to Sezzle for order #%d (was "%s").', $order->get_id(), $previous_method));
 			}
 
 			/**
@@ -1515,6 +2050,32 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 			}
 
 			/**
+			 * Completion lock name for a post-checkout return (no WooCommerce order before
+			 * the redirect): the shopper, so that returns from two of their Sezzle checkouts
+			 * (tabs, windows) with different reference IDs run one at a time. Otherwise both
+			 * pass assert_no_order_placed_since() before either records its order as placed,
+			 * and both create an order and capture. Covers refreshes of one return too: the
+			 * same shopper makes them.
+			 *
+			 * One lock rather than a shopper lock taken inside the reference ID's: before
+			 * MySQL 5.7, taking a second named lock releases the first.
+			 *
+			 * Falls back to the reference ID when the request has no shopper to lock on.
+			 *
+			 * @param string $reference_id
+			 * @return string
+			 */
+			private function post_checkout_lock_name($reference_id) {
+				if (get_current_user_id()) {
+					return 'post-checkout-shopper:u:' . get_current_user_id();
+				}
+				if (WC()->session && WC()->session->get_customer_id()) {
+					return 'post-checkout-shopper:s:' . WC()->session->get_customer_id();
+				}
+				return $reference_id;
+			}
+
+			/**
 			 * Public wrapper so express checkout completion shares the same lock.
 			 *
 			 * @param string $name
@@ -1558,6 +2119,20 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                     throw new Exception(__('Unable to create order.', 'woo_sezzlepay'));
                 }
 
+                // Kept to put back if the order is deleted without a capture (see callback).
+                $this->consumed_checkout_session = [
+                    'posted_data'              => $posted_data,
+                    'sezzle_stored_cart_fees'  => WC()->session->get('sezzle_stored_cart_fees'),
+                    'sezzle_order_attribution' => WC()->session->get('sezzle_order_attribution'),
+                ];
+
+                // Another order (any payment method, e.g. in another tab) emptied the cart
+                // while the shopper was on Sezzle. Stop before create_order() builds an empty
+                // order and fires the order-processed hooks for it.
+                if (WC()->cart->is_empty()) {
+                    throw new Exception(__('Unable to create order: your cart is empty.', 'woo_sezzlepay'));
+                }
+
                 // This request is the return from Sezzle (wc-api), not the checkout page, but
                 // it finishes the shopper's checkout. Without this, is_checkout() is false and
                 // plugins that skip checkout requests run their non-checkout checks instead,
@@ -1588,6 +2163,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                     case !$order:
                         throw new Exception(__('Unable to create order.', 'woo_sezzlepay'));
                 }
+                $this->created_return_order = $order;
 
                 // Make the order findable by a retried callback before anything can fail.
                 $order->set_transaction_id($order_reference_id);
@@ -1712,6 +2288,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $order->add_order_note(__('Payment approved by Sezzle successfully.', 'woo_sezzlepay'));
                 $order->payment_complete($order_reference_id);
                 WC()->cart->empty_cart();
+                $this->queue_release_other_order_sessions($order);
                 if (wp_doing_ajax()) {
                     return;
                 }
@@ -1732,6 +2309,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
             {
                 // From here on Sezzle may have captured even if we see an error.
                 $this->capture_attempted = true;
+                $this->capture_requested = true;
                 $txn_mode = $this->get_option('transaction-mode');
                 $service_v2 = new Service_V2($txn_mode, $this->get_keys());
 				$total = $order->get_total();
@@ -1796,6 +2374,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                 $order->add_order_note(__('Payment approved by Sezzle successfully.', 'woo_sezzlepay'));
                 $order->payment_complete($order_reference_id);
                 WC()->cart->empty_cart();
+                $this->queue_release_other_order_sessions($order);
 
                 if (!$order_key) {
                     $order->add_meta_data('order_reference_id', $order_reference_id);
@@ -1832,6 +2411,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                         $order->add_order_note(__('Payment approved by Sezzle successfully.', 'woo_sezzlepay'));
                         $order->payment_complete();
                         WC()->cart->empty_cart();
+                        $this->queue_release_other_order_sessions($order);
                     }
                     if (wp_doing_ajax()) {
                         return;
@@ -1974,6 +2554,7 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
 					$details['source'] = 'cart';
 				}
 				$details['capture_attempted'] = $this->capture_attempted;
+				$details['authorization_released'] = $this->authorization_released;
 				return $details;
 			}
 
@@ -2627,6 +3208,28 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
         add_action('wp_ajax_nopriv_sezzle_checkout', 'sezzle_checkout');
         add_action('wc_ajax_sezzle_checkout', 'sezzle_checkout');
         add_action('wp_loaded', 'sezzle_checkout_action');
+
+        /**
+         * Record that the shopper placed an order, for post-checkout order creation only
+         * (see WC_Gateway_Sezzlepay::record_shopper_order_placed()).
+         */
+        function sezzle_record_shopper_order_placed($order_id, $from, $to)
+        {
+            if (allow_create_order_post_checkout()) {
+                WC_Gateway_Sezzlepay::record_shopper_order_placed($order_id, $from, $to);
+            }
+        }
+        add_action('woocommerce_order_status_changed', 'sezzle_record_shopper_order_placed', 10, 3);
+
+        /**
+         * Release a paid order's other Sezzle sessions in the background (see
+         * WC_Gateway_Sezzlepay::queue_release_other_order_sessions()).
+         */
+        function sezzle_release_other_order_sessions($order_id)
+        {
+            WC_Gateway_Sezzlepay::instance()->run_release_other_order_sessions($order_id);
+        }
+        add_action(WC_Gateway_Sezzlepay::RELEASE_OTHER_SESSIONS_ACTION, 'sezzle_release_other_order_sessions');
 
 		/**
 		 * Emit the Sezzle price widget on product and cart pages, for both classic and
